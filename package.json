@@ -9,11 +9,13 @@
   },
   "packageManager": "pnpm@10.30.1",
   "devDependencies": {
+    "@sudive-ai/datum-workbench": "workspace:^",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   },
   "scripts": {
     "build": "tsc -b",
-    "clean": "tsc -b --clean"
+    "clean": "tsc -b --clean",
+    "demo": "node --experimental-strip-types examples/hello-agent/start.ts"
   }
 }

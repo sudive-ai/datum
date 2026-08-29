@@ -8,12 +8,75 @@ importers:
 
   .:
     devDependencies:
+      '@sudive-ai/datum-workbench':
+        specifier: workspace:^
+        version: link:packages/workbench
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+
+  packages/loop:
+    dependencies:
+      '@sudive-ai/cordis':
+        specifier: workspace:^
+        version: link:../../vendor/cordis
+      '@sudive-ai/datum-session':
+        specifier: workspace:^
+        version: link:../session
+      '@sudive-ai/datum-tools':
+        specifier: workspace:^
+        version: link:../tools
+      '@sudive-ai/datum-vocabulary':
+        specifier: workspace:^
+        version: link:../vocabulary
+
+  packages/session:
+    dependencies:
+      '@sudive-ai/cordis':
+        specifier: workspace:^
+        version: link:../../vendor/cordis
+      '@sudive-ai/datum-vocabulary':
+        specifier: workspace:^
+        version: link:../vocabulary
+
+  packages/tools:
+    dependencies:
+      '@sudive-ai/cordis':
+        specifier: workspace:^
+        version: link:../../vendor/cordis
+      '@sudive-ai/datum-vocabulary':
+        specifier: workspace:^
+        version: link:../vocabulary
+
+  packages/vocabulary:
+    dependencies:
+      '@sudive-ai/cordis':
+        specifier: workspace:^
+        version: link:../../vendor/cordis
+
+  packages/workbench:
+    dependencies:
+      '@sudive-ai/cordis':
+        specifier: workspace:^
+        version: link:../../vendor/cordis
+      '@sudive-ai/datum-loop':
+        specifier: workspace:^
+        version: link:../loop
+      '@sudive-ai/datum-session':
+        specifier: workspace:^
+        version: link:../session
+      '@sudive-ai/datum-tools':
+        specifier: workspace:^
+        version: link:../tools
+      '@sudive-ai/datum-vocabulary':
+        specifier: workspace:^
+        version: link:../vocabulary
+      '@sudive-ai/schemastery':
+        specifier: workspace:^
+        version: link:../../vendor/schemastery
 
   vendor/cordis:
     dependencies:
