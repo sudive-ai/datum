@@ -23,26 +23,31 @@ General-purpose agent tools are black boxes: nobody can answer what the model ac
 
 | Requirement | Where it lives |
 |---|---|
-| Reliable execution (可靠执行) | `@datum-runtime/loop` — turn/step state machine, AbortSignal threaded end-to-end |
-| White-box context (白盒上下文) | `@datum-runtime/session` — every request derivable from the log |
-| Traceable fact trajectories (事实可追溯) | `@datum-runtime/session` — append-only, monotonic seq, replayable |
+| Reliable execution (可靠执行) | `@sudive-ai/loop` — turn/step state machine, AbortSignal threaded end-to-end |
+| White-box context (白盒上下文) | `@sudive-ai/session` — every request derivable from the log |
+| Traceable fact trajectories (事实可追溯) | `@sudive-ai/session` — append-only, monotonic seq, replayable |
 | Environment awareness (环境可感知) | ingress rules + fold layer (continuous world → turn-based facts) |
-| Configurable governance (配置化治理) | approval / permission chokepoints in `@datum-runtime/loop` + policy packages |
+| Configurable governance (配置化治理) | approval / permission chokepoints in `@sudive-ai/loop` + policy packages |
 | Time series + spatial structure | every event carries `time` + ordered `seq`; observations carry source & freshness |
 | Sandbox policy (沙箱策略) | execution seam — consumers hand over exact argv, backend wraps per policy |
 
 ## Repository layout
 
 ```
-packages/
-  kernel/   @datum-runtime/kernel   reversible effects, scoped registries, typed events
-  session/  @datum-runtime/session  append-only event log, derived projections, fail-closed load
-  tools/    @datum-runtime/tools    tool registry and guarded execution pipeline
-  loop/     @datum-runtime/loop     agent contract, default turn/step driver (factory seam)
+vendor/
+  cordis/   @sudive-ai/cordis    the L0 kernel: source-vendored Cordis (Context, Service+Inject,
+                                     Events emit/waterfall, Effect, Fiber lifecycle), pinned + owned
+  cosmokit/ @sudive-ai/cosmokit  vendored foundation utilities
+  schemastery/ …                     vendored config schema + cordis plugin set
+                                     (loader / include / group / timer / hmr / logger-console)
+packages/                  empty today — the @sudive-ai/* layers land here in ROADMAP order
+                           (M1 session → M3 tools → M2 loop), each built against the vendored kernel
 docs/
   ROADMAP.md                milestones and acceptance gates
 AGENTS.md                   working conventions for humans and agents
 ```
+
+The L0 framework kernel is **vendored Cordis** (`vendor/`, see `vendor/README.md` for the manifest and sync procedure): reversible effects, typed emit/waterfall events, and keyed service injection are the fixed language layer — owned source, pinned upstream version, no hand-rolled second kernel on top.
 
 ## Status
 

@@ -5,13 +5,16 @@ Datum — an event-sourced agent runtime and workbench core. Read `README.md` fo
 ## Layout
 
 ```
-packages/        @datum-runtime/* workspaces, one package per directory
-  kernel/        reversible effects, scopes, typed events, service registry
-  session/       append-only event log, derived projections, fail-closed load
-  tools/         tool registry and guarded execution pipeline
-  loop/          agent contract + default turn/step driver (factory seam)
+vendor/          L0 framework layer, source-vendored and pinned (see vendor/README.md)
+  cordis/        @sudive-ai/cordis — Context / Service+Inject / Events / Effect / Fiber
+  cosmokit/      @sudive-ai/cosmokit — foundation utilities
+  schemastery/   @sudive-ai/schemastery — config schema
+  loader,hmr,include,group,timer,logger-console/   @sudive-ai/cordis-plugin-*
+packages/        empty today; @sudive-ai/* layers land here in ROADMAP order (session first)
 docs/            roadmap and design notes
 ```
+
+The L0 kernel is **vendored Cordis, not hand-written**: `vendor/*/src` is upstream source and must not be edited casually — every divergence is logged in `vendor/README.md`. Higher layers extend the kernel by declaration merging and composition, never by patching it.
 
 ## Commands
 
@@ -23,8 +26,8 @@ pnpm clean       # remove build outputs
 
 ## Non-negotiable invariants
 
-- **ESM everywhere** (`"type": "module"`), TypeScript `strict`, NodeNext resolution, `.ts` specifiers in local relative imports.
-- **Registrations are reversible**: every registration API returns a disposer; there is no irreversible registration API. Teardown is reverse-order and exactly-once.
+- **ESM everywhere** (`"type": "module"`), TypeScript `strict`, bundler resolution, `.ts` specifiers in local relative imports (rewritten to `.js` at emit).
+- **Registrations are reversible**: every registration API returns a disposer; there is no irreversible registration API. Teardown is reverse-order and exactly-once. Enforced by the vendored kernel's effect/fiber discipline (`vendor/cordis`), not reimplemented per package.
 - **The log is the single source of truth**: never store a second copy of derived state next to the log; projections fold from events.
 - **Model-visible ⟺ logged**: anything that reaches a model request must be reconstructable from the log; a new model-visible input requires a new event type in `SessionEventMap`.
 - **Fail closed on read**: a reader that meets an event type absent from the vocabulary refuses the log (`SessionFormatUnsupportedError`); never skip unknown events.
