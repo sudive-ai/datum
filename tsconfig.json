@@ -1,9 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/kernel" },
-    { "path": "packages/session" },
-    { "path": "packages/tools" },
-    { "path": "packages/loop" }
+    { "path": "vendor/cosmokit" },
+    { "path": "vendor/schemastery" },
+    { "path": "vendor/cordis" },
+    { "path": "vendor/loader" },
+    { "path": "vendor/timer" },
+    { "path": "vendor/group" },
+    { "path": "vendor/include" },
+    { "path": "vendor/logger-console" },
+    { "path": "vendor/hmr" }
   ]
 }
