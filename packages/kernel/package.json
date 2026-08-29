@@ -1,5 +1,5 @@
 {
-  "name": "@datum-fw/kernel",
+  "name": "@datum-runtime/kernel",
   "version": "0.0.0",
   "private": true,
   "type": "module",

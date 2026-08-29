@@ -5,7 +5,7 @@ Datum — an event-sourced agent runtime and workbench core. Read `README.md` fo
 ## Layout
 
 ```
-packages/        @datum-fw/* workspaces, one package per directory
+packages/        @datum-runtime/* workspaces, one package per directory
   kernel/        reversible effects, scopes, typed events, service registry
   session/       append-only event log, derived projections, fail-closed load
   tools/         tool registry and guarded execution pipeline

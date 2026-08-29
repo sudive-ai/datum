@@ -4,7 +4,7 @@ Build order: each milestone delivers a runnable layer and a mechanical acceptanc
 
 ## M1 — Kernel + Session (facts first)
 
-Deliverable: `@datum-fw/kernel` (Scope effects, emit/waterfall events, service registry) and `@datum-fw/session` (append-only log, `deriveMessages()`, JSONL serialization, fail-closed load).
+Deliverable: `@datum-runtime/kernel` (Scope effects, emit/waterfall events, service registry) and `@datum-runtime/session` (append-only log, `deriveMessages()`, JSONL serialization, fail-closed load).
 
 Acceptance gates:
 
@@ -14,7 +14,7 @@ Acceptance gates:
 
 ## M2 — Loop (reliable execution)
 
-Deliverable: `@datum-fw/loop` — Agent contract, inbox (next-turn / next-step), turn/step state machine, cancellation, `pre-step` / `request` waterfalls, factory seam (`setFactory`).
+Deliverable: `@datum-runtime/loop` — Agent contract, inbox (next-turn / next-step), turn/step state machine, cancellation, `pre-step` / `request` waterfalls, factory seam (`setFactory`).
 
 Acceptance gates:
 
@@ -24,7 +24,7 @@ Acceptance gates:
 
 ## M3 — Tools + seams (composable capabilities)
 
-Deliverable: `@datum-fw/tools` registry, one LLM seam with two adapters (one real provider, one **mock adapter that is the primary test infrastructure**), one execution seam (fs or shell) with two providers.
+Deliverable: `@datum-runtime/tools` registry, one LLM seam with two adapters (one real provider, one **mock adapter that is the primary test infrastructure**), one execution seam (fs or shell) with two providers.
 
 Acceptance gates:
 

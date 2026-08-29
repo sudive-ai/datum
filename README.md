@@ -23,11 +23,11 @@ General-purpose agent tools are black boxes: nobody can answer what the model ac
 
 | Requirement | Where it lives |
 |---|---|
-| Reliable execution (可靠执行) | `@datum-fw/loop` — turn/step state machine, AbortSignal threaded end-to-end |
-| White-box context (白盒上下文) | `@datum-fw/session` — every request derivable from the log |
-| Traceable fact trajectories (事实可追溯) | `@datum-fw/session` — append-only, monotonic seq, replayable |
+| Reliable execution (可靠执行) | `@datum-runtime/loop` — turn/step state machine, AbortSignal threaded end-to-end |
+| White-box context (白盒上下文) | `@datum-runtime/session` — every request derivable from the log |
+| Traceable fact trajectories (事实可追溯) | `@datum-runtime/session` — append-only, monotonic seq, replayable |
 | Environment awareness (环境可感知) | ingress rules + fold layer (continuous world → turn-based facts) |
-| Configurable governance (配置化治理) | approval / permission chokepoints in `@datum-fw/loop` + policy packages |
+| Configurable governance (配置化治理) | approval / permission chokepoints in `@datum-runtime/loop` + policy packages |
 | Time series + spatial structure | every event carries `time` + ordered `seq`; observations carry source & freshness |
 | Sandbox policy (沙箱策略) | execution seam — consumers hand over exact argv, backend wraps per policy |
 
@@ -35,10 +35,10 @@ General-purpose agent tools are black boxes: nobody can answer what the model ac
 
 ```
 packages/
-  kernel/   @datum-fw/kernel   reversible effects, scoped registries, typed events
-  session/  @datum-fw/session  append-only event log, derived projections, fail-closed load
-  tools/    @datum-fw/tools    tool registry and guarded execution pipeline
-  loop/     @datum-fw/loop     agent contract, default turn/step driver (factory seam)
+  kernel/   @datum-runtime/kernel   reversible effects, scoped registries, typed events
+  session/  @datum-runtime/session  append-only event log, derived projections, fail-closed load
+  tools/    @datum-runtime/tools    tool registry and guarded execution pipeline
+  loop/     @datum-runtime/loop     agent contract, default turn/step driver (factory seam)
 docs/
   ROADMAP.md                milestones and acceptance gates
 AGENTS.md                   working conventions for humans and agents

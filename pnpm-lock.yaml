@@ -19,25 +19,25 @@ importers:
 
   packages/loop:
     dependencies:
-      '@datum-fw/kernel':
+      '@datum-runtime/kernel':
         specifier: workspace:*
         version: link:../kernel
-      '@datum-fw/session':
+      '@datum-runtime/session':
         specifier: workspace:*
         version: link:../session
-      '@datum-fw/tools':
+      '@datum-runtime/tools':
         specifier: workspace:*
         version: link:../tools
 
   packages/session:
     dependencies:
-      '@datum-fw/kernel':
+      '@datum-runtime/kernel':
         specifier: workspace:*
         version: link:../kernel
 
   packages/tools:
     dependencies:
-      '@datum-fw/kernel':
+      '@datum-runtime/kernel':
         specifier: workspace:*
         version: link:../kernel
 
