@@ -30,8 +30,16 @@ const config = resolveWorkbenchConfig({
     apiKeyEnv: 'OPENAI_API_KEY', // export the key; it never lives in files or the log
   },
   plugins: [new URL('./hello-plugin.ts', import.meta.url).pathname],
+  storage: {
+    // Facts land in a local SQLite file by default — restart and the
+    // conversation is still there. For shared deployments:
+    //   DATUM_STORAGE_ENGINE=postgres DATUM_PG_URL=postgres://… pnpm demo
+    engine: (process.env.DATUM_STORAGE_ENGINE as 'sqlite' | 'postgres' | 'memory' | undefined) ?? 'sqlite',
+    path: process.env.DATUM_DB_PATH ?? 'datum.db',
+    connectionStringEnv: 'DATUM_PG_URL', // the connection string comes from the environment
+  },
 })
 
 const workbench = await startWorkbench(config)
 console.log(`Datum workbench running:  http://127.0.0.1:${workbench.port}`)
-console.log('Ctrl+C to stop; the session log lives in memory for this demo (JSONL persistence lands next).')
+console.log(`Facts persist to ${config.storage.engine === 'memory' ? 'memory (ephemeral)' : config.storage.path}; restart and the conversation is still there.`)

@@ -1,6 +1,6 @@
 {
-  "name": "@sudive-ai/datum-workbench",
-  "description": "Datum M4 workbench core — local web workbench (HTTP + SSE), config resolution, user-plugin loading, and the approval chokepoint wiring (M4 of the Datum runtime)",
+  "name": "@sudive-ai/datum-storage",
+  "description": "Datum storage seam — pluggable persistence engines for session logs, traces, and sessions: SQLite (default local) and PostgreSQL (optional), fail-closed reads (M-layer extension of the Datum runtime)",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -26,16 +26,13 @@
   },
   "dependencies": {
     "@sudive-ai/cordis": "workspace:^",
-    "@sudive-ai/datum-loop": "workspace:^",
     "@sudive-ai/datum-session": "workspace:^",
-    "@sudive-ai/datum-storage": "workspace:^",
-    "@sudive-ai/datum-tools": "workspace:^",
     "@sudive-ai/datum-vocabulary": "workspace:^",
-    "@sudive-ai/schemastery": "workspace:^"
+    "postgres": "^3.4.7"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sudive-ai/datum.git",
-    "directory": "packages/workbench"
+    "directory": "packages/storage"
   }
 }

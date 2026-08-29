@@ -30,6 +30,15 @@ export interface WorkbenchConfig {
   }
   /** User plugin module paths, resolved against the process cwd. */
   readonly plugins: readonly string[]
+  /** The storage engine binding (session facts survive restarts). */
+  readonly storage: {
+    /** `'sqlite'` is the default local engine; `'postgres'` is opt-in; `'memory'` is ephemeral. */
+    readonly engine: 'memory' | 'sqlite' | 'postgres'
+    /** SQLite database file path (created if missing). */
+    readonly path: string
+    /** Environment variable carrying the PostgreSQL connection string. */
+    readonly connectionStringEnv: string
+  }
 }
 
 /** The schema validating user-authored workbench config. */
@@ -37,6 +46,17 @@ export const workbenchConfigSchema = Schema.intersect([
   Schema.object({
     port: Schema.natural().default(8642).description('HTTP port for the local workbench'),
     plugins: Schema.array(Schema.string()).default([]).description('user plugin module paths'),
+  }),
+  Schema.object({
+    storage: Schema.object({
+      engine: Schema.union(['memory', 'sqlite', 'postgres']).default('sqlite'),
+      path: Schema.string().default('datum.db'),
+      connectionStringEnv: Schema.string().default('DATUM_PG_URL'),
+    }).default({
+      engine: 'sqlite',
+      path: 'datum.db',
+      connectionStringEnv: 'DATUM_PG_URL',
+    } as never),
   }),
   Schema.object({
     agent: Schema.object({

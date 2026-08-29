@@ -9,11 +9,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../vendor/cordis" },
-    { "path": "../../vendor/schemastery" },
     { "path": "../vocabulary" },
-    { "path": "../session" },
-    { "path": "../tools" },
-    { "path": "../loop" },
-    { "path": "../storage" }
+    { "path": "../session" }
   ]
 }

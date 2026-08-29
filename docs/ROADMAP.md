@@ -45,7 +45,14 @@ Acceptance gates:
 - **Swap test**: replace a provider without touching any consumer; all tests green.
 - **Snapshot replay**: recorded sessions replay keylessly through the mock adapter; any model-visible behavior change must update the snapshot.
 
-## M4 — Workbench core (projection + governance) — core landed; approval UI and durable governance events deferred
+## Storage — persistence engines
+
+Deliverable: `@sudive-ai/datum-storage` — the storage seam with SQLite as the default local engine (Node's built-in `node:sqlite`) and PostgreSQL as the optional, connection-configured engine (postgres.js, connection string from the environment). Session events persist through the `session/event` broadcast; every read path revalidates through the session package's fail-closed envelope gate; `close` drains in-flight writes before the engine shuts.
+
+Acceptance gates:
+
+- **Engine conformance**: both engines pass the same suite — write, fail-closed load, idempotent replay, session registry, unknown-session empty set.
+- **Restart recovery**: a workbench closed and reopened on the same database restores the session fully, and the UI's first frame comes from replay (live = replay from boot).
 
 Deliverable: JSONL persistence, UI projection layer (pure presenters), approval / ask-user / commands chokepoints, per-agent scopes, permission presets.
 

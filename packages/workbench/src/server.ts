@@ -7,6 +7,12 @@ import { SessionLog } from '@sudive-ai/datum-session'
 import { LlmService, MockAdapter, ToolService, createOpenAICompatibleAdapter } from '@sudive-ai/datum-tools'
 import type { LlmAdapter } from '@sudive-ai/datum-tools'
 import { AgentLoop, createAgentLoop } from '@sudive-ai/datum-loop'
+import {
+  createPostgresStorage,
+  createSqliteStorage,
+  openPersistentSessionLog,
+  type StorageAdapter,
+} from '@sudive-ai/datum-storage'
 import type { WorkbenchConfig } from './config.ts'
 import { createChatPresenter, type ChatViewState } from './presenter.ts'
 import { workbenchPage } from './page.ts'
@@ -24,7 +30,9 @@ export interface WorkbenchHandle {
   readonly session: SessionLog
   /** The loop driving the agent. */
   readonly loop: AgentLoop
-  /** Stop the server, close SSE streams, and dispose registrations. */
+  /** The storage engine behind this workbench, when persistence is on. */
+  readonly storage: StorageAdapter | undefined
+  /** Stop the server, close SSE streams, dispose registrations, close storage. */
   close(): Promise<void>
 }
 
@@ -45,7 +53,13 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   const llm = new LlmService(ctx, 'llm')
   llm.use(createAdapter(config))
   const tools = new ToolService(ctx, 'tools')
-  const session = new SessionLog({ context: ctx })
+  const storage = createStorage(config)
+  // Restore-or-create: a stored session rehydrates through the engine's
+  // fail-closed read; a fresh one persists from its first fact on. 'memory'
+  // keeps the old ephemeral behavior (tests, throwaway demos).
+  const session = storage
+    ? await openPersistentSessionLog({ context: ctx, storage })
+    : new SessionLog({ context: ctx })
 
   const presenter = createChatPresenter()
   const clients = new Set<ServerResponse>()
@@ -57,6 +71,9 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       for (const client of clients) client.write(frame)
     }),
   )
+  // Historical replay: a restored session starts the view from its stored
+  // facts, so live rendering and replay share one path from the first frame.
+  for (const entry of session.entries) presenter.apply(entry)
 
   for (const pluginPath of config.plugins) {
     const absolute = resolve(process.cwd(), pluginPath)
@@ -156,13 +173,36 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     ctx,
     session,
     loop,
+    storage,
     close: () =>
-      new Promise<void>((resolveClose, rejectClose) => {
+      (async () => {
         for (const client of clients) client.end()
         clients.clear()
-        for (const dispose of disposers) dispose()
-        server.close(error => (error ? rejectClose(error) : resolveClose()))
-      }),
+        // Drain first: the persistence disposer awaits in-flight writes, so
+        // closing cannot lose the tail of the log.
+        for (const dispose of disposers) await dispose()
+        if (storage) await storage.close()
+        await new Promise<void>((resolveClose, rejectClose) => {
+          server.close(error => (error ? rejectClose(error) : resolveClose()))
+        })
+      })(),
+  }
+}
+
+/** Build the configured storage engine; misconfiguration fails here, loudly. */
+function createStorage(config: WorkbenchConfig): StorageAdapter | undefined {
+  switch (config.storage.engine) {
+    case 'memory':
+      return undefined
+    case 'sqlite':
+      return createSqliteStorage({ path: config.storage.path })
+    case 'postgres': {
+      const connectionString = process.env[config.storage.connectionStringEnv]
+      if (!connectionString) {
+        throw new Error(`workbench config: environment variable ${config.storage.connectionStringEnv} is not set (the PostgreSQL connection string comes from the environment, never from config files)`)
+      }
+      return createPostgresStorage({ connectionString })
+    }
   }
 }
 

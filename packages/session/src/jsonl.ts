@@ -70,19 +70,20 @@ export function parseSessionLog(text: string): readonly SessionEvent[] {
     } catch (cause) {
       throw new SessionFormatError('line is not valid JSON', lineNumber, { cause })
     }
-    entries.push(validateEnvelope(parsed, lineNumber))
+    entries.push(validateSessionEnvelope(parsed, lineNumber))
   }
   return entries
 }
 
 /**
- * Validate one parsed envelope against the format contract.
+ * Validate one parsed envelope against the format contract — the shared
+ * fail-closed gate for every storage engine, not just the JSONL reader.
  *
- * @param parsed — the JSON-parsed line.
- * @param line — 1-based line number, for error messages.
+ * @param parsed — a JSON-decoded entry.
+ * @param line — 1-based position, for error messages.
  * @returns the entry, deep-frozen.
  */
-function validateEnvelope(parsed: unknown, line: number): SessionEvent {
+export function validateSessionEnvelope(parsed: unknown, line = 1): SessionEvent {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new SessionFormatError('entry is not a JSON object', line)
   }

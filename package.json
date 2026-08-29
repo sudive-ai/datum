@@ -16,6 +16,6 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "demo": "node --experimental-strip-types examples/hello-agent/start.ts"
+    "demo": "node --experimental-strip-types --experimental-sqlite examples/hello-agent/start.ts"
   }
 }

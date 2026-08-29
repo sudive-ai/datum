@@ -47,6 +47,7 @@ packages/                  @sudive-ai/datum-* layers land here in ROADMAP order
   tools/                   M3 capability seams (LLM adapter seam, tool registry, execution seam)
   loop/                    M2 the default harness (turn/step machine, waterfalls, cancellation)
   workbench/               M4 local web workbench (HTTP + SSE, config, user plugins)
+  storage/                 storage seam: SQLite (default local) + PostgreSQL engines
 examples/
   hello-agent/             the smallest authoring example: one config + one plugin
 docs/
@@ -72,6 +73,11 @@ pnpm demo                   # hello-agent workbench on http://127.0.0.1:8642 (ke
 Point the demo at a real model in `examples/hello-agent/start.ts`
 (`llm.provider: 'openai-compatible'` + `baseUrl`), export the API key
 environment variable, and restart — everything else stays the same.
+
+Facts persist to a local SQLite database (`datum.db`) by default: kill the
+process, start again, and the conversation is still there. For shared
+deployments, `DATUM_STORAGE_ENGINE=postgres DATUM_PG_URL=postgres://… pnpm demo`
+switches the engine — every read path stays fail-closed regardless of engine.
 
 ## Naming
 

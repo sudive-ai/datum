@@ -7,6 +7,8 @@ import { deepFreeze } from './freeze.ts'
 export interface SessionLogOptions {
   /** Identity of the session; defaults to a fresh `sess-<random>` id. */
   sessionId?: SessionId
+  /** Pre-existing entries to restore (e.g. reloaded from a storage engine). */
+  entries?: readonly SessionEvent[]
   /**
    * Kernel context used to broadcast `session/event` on every append. When
    * absent the log stays a pure data structure with no bus traffic.
@@ -42,6 +44,14 @@ export class SessionLog {
     this.sessionId = options.sessionId ?? brand<'SessionId'>(`sess-${Math.random().toString(36).slice(2, 10)}`)
     this._context = options.context
     this._clock = options.clock ?? (() => Date.now())
+    if (options.entries) {
+      options.entries.forEach((entry, index) => {
+        if (entry.seq !== index) {
+          throw new Error(`session restore: entry ${index} carries seq ${entry.seq}; the restored log must be gap-free from 0`)
+        }
+        this._entries.push(entry)
+      })
+    }
   }
 
   /** Every entry appended so far, oldest first; do not mutate. */
