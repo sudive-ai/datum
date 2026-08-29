@@ -20,3 +20,7 @@ tmp/
 
 # ZCode session workspace state
 .zcode/
+
+# Local workbench databases
+datum.db
+*.sqlite
