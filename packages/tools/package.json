@@ -1,0 +1,36 @@
+{
+  "name": "@sudive-ai/datum-tools",
+  "description": "Datum M3 capability seams — the LLM seam (OpenAI-compatible + mock adapters), the tool registry, and the execution seam definition (M3 of the Datum runtime)",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@sudive-ai/cordis": "workspace:^",
+    "@sudive-ai/datum-vocabulary": "workspace:^"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudive-ai/datum.git",
+    "directory": "packages/tools"
+  }
+}
