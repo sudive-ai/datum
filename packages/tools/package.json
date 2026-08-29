@@ -1,0 +1,25 @@
+{
+  "name": "@datum-fw/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool registry and guarded execution pipeline — model-facing capabilities as seams.",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@datum-fw/kernel": "workspace:*"
+  }
+}

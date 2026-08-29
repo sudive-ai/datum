@@ -1,0 +1,27 @@
+{
+  "name": "@datum-fw/loop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent contract and the default turn/step driver — the loop is a plugin, not the kernel.",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@datum-fw/kernel": "workspace:*",
+    "@datum-fw/session": "workspace:*",
+    "@datum-fw/tools": "workspace:*"
+  }
+}

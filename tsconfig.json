@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/kernel" },
+    { "path": "packages/session" },
+    { "path": "packages/tools" },
+    { "path": "packages/loop" }
+  ]
+}
