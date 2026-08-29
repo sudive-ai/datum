@@ -4,7 +4,7 @@ Build order: each milestone delivers a runnable layer and a mechanical acceptanc
 
 ## M1 — Kernel + Session (facts first)
 
-Deliverable: the vendored L0 kernel — `vendor/cordis` → `@sudive-ai/cordis` (Context, Service+Inject, emit/waterfall events, Effect, Fiber lifecycle with hardening; see `vendor/README.md`) — and `@sudive-ai/session` (append-only log, `deriveMessages()`, JSONL serialization, fail-closed load).
+Deliverable: the vendored L0 kernel — `vendor/cordis` → `@sudive-ai/cordis` (Context, Service+Inject, emit/waterfall events, Effect, Fiber lifecycle with hardening; see `vendor/README.md`) — and `@sudive-ai/datum-session` (append-only log, `deriveMessages()`, JSONL serialization, fail-closed load).
 
 Acceptance gates:
 
@@ -14,7 +14,7 @@ Acceptance gates:
 
 ## M2 — Loop (reliable execution)
 
-Deliverable: `@sudive-ai/loop` — Agent contract, inbox (next-turn / next-step), turn/step state machine, cancellation, `pre-step` / `request` waterfalls, factory seam (`setFactory`).
+Deliverable: `@sudive-ai/datum-loop` — Agent contract, inbox (next-turn / next-step), turn/step state machine, cancellation, `pre-step` / `request` waterfalls, factory seam (`setFactory`).
 
 Acceptance gates:
 
@@ -24,7 +24,7 @@ Acceptance gates:
 
 ## M3 — Tools + seams (composable capabilities)
 
-Deliverable: `@sudive-ai/tools` registry, one LLM seam with two adapters (one real provider, one **mock adapter that is the primary test infrastructure**), one execution seam (fs or shell) with two providers.
+Deliverable: `@sudive-ai/datum-tools` registry, one LLM seam with two adapters (one real provider, one **mock adapter that is the primary test infrastructure**), one execution seam (fs or shell) with two providers.
 
 Acceptance gates:
 

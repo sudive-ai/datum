@@ -23,11 +23,11 @@ General-purpose agent tools are black boxes: nobody can answer what the model ac
 
 | Requirement | Where it lives |
 |---|---|
-| Reliable execution (可靠执行) | `@sudive-ai/loop` — turn/step state machine, AbortSignal threaded end-to-end |
-| White-box context (白盒上下文) | `@sudive-ai/session` — every request derivable from the log |
-| Traceable fact trajectories (事实可追溯) | `@sudive-ai/session` — append-only, monotonic seq, replayable |
+| Reliable execution (可靠执行) | `@sudive-ai/datum-loop` — turn/step state machine, AbortSignal threaded end-to-end |
+| White-box context (白盒上下文) | `@sudive-ai/datum-session` — every request derivable from the log |
+| Traceable fact trajectories (事实可追溯) | `@sudive-ai/datum-session` — append-only, monotonic seq, replayable |
 | Environment awareness (环境可感知) | ingress rules + fold layer (continuous world → turn-based facts) |
-| Configurable governance (配置化治理) | approval / permission chokepoints in `@sudive-ai/loop` + policy packages |
+| Configurable governance (配置化治理) | approval / permission chokepoints in `@sudive-ai/datum-loop` + policy packages |
 | Time series + spatial structure | every event carries `time` + ordered `seq`; observations carry source & freshness |
 | Sandbox policy (沙箱策略) | execution seam — consumers hand over exact argv, backend wraps per policy |
 
@@ -40,8 +40,9 @@ vendor/
   cosmokit/ @sudive-ai/cosmokit  vendored foundation utilities
   schemastery/ …                     vendored config schema + cordis plugin set
                                      (loader / include / group / timer / hmr / logger-console)
-packages/                  empty today — the @sudive-ai/* layers land here in ROADMAP order
-                           (M1 session → M3 tools → M2 loop), each built against the vendored kernel
+packages/                  @sudive-ai/datum-* layers land here in ROADMAP order
+                           (M1 datum-session → M3 datum-tools → M2 datum-loop),
+                           each built against the vendored kernel
 docs/
   ROADMAP.md                milestones and acceptance gates
 AGENTS.md                   working conventions for humans and agents

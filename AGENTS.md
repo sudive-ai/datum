@@ -10,9 +10,11 @@ vendor/          L0 framework layer, source-vendored and pinned (see vendor/READ
   cosmokit/      @sudive-ai/cosmokit — foundation utilities
   schemastery/   @sudive-ai/schemastery — config schema
   loader,hmr,include,group,timer,logger-console/   @sudive-ai/cordis-plugin-*
-packages/        empty today; @sudive-ai/* layers land here in ROADMAP order (session first)
+packages/        @sudive-ai/datum-* packages land here in ROADMAP order (datum-session first)
 docs/            roadmap and design notes
 ```
+
+Package naming: everything under `packages/` is `@sudive-ai/datum-<layer>` (e.g. `@sudive-ai/datum-session`, `@sudive-ai/datum-core`); the `@sudive-ai/*` names without the `datum-` prefix are reserved for the vendored framework layer in `vendor/`, so a package name tells you at a glance whether it is owned code or pinned upstream source.
 
 The L0 kernel is **vendored Cordis, not hand-written**: `vendor/*/src` is upstream source and must not be edited casually — every divergence is logged in `vendor/README.md`. Higher layers extend the kernel by declaration merging and composition, never by patching it.
 
