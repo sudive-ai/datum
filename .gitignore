@@ -4,9 +4,16 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# logs and caches
+*.log
+.eslintcache
+
+# editor / OS cruft
+.DS_Store
+Thumbs.db
+.idea/
+tmp/
+
 .env
 .env.*
 !.env.example
-
-.DS_Store
-tmp/
