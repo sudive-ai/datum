@@ -17,3 +17,6 @@ tmp/
 .env
 .env.*
 !.env.example
+
+# ZCode session workspace state
+.zcode/
