@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Version comes from package.json#packageManager (pnpm@10.x).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (lockfile must be exact)
+        run: pnpm install --frozen-lockfile
+
+      # The vendored framework layer is pinned workspace source: no @sudive-ai
+      # package may ever resolve from the npm registry.
+      - name: Vendored names resolve to the workspace only
+        run: '! grep -E "registry\.npmjs\.org/@sudive-ai" pnpm-lock.yaml'
+
+      - run: pnpm build
+
+      # Milestone acceptance-gate tests land per package (node --test);
+      # this stays a no-op until the first test script appears.
+      - run: pnpm -r --if-present test
