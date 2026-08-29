@@ -41,8 +41,14 @@ vendor/
   schemastery/ …                     vendored config schema + cordis plugin set
                                      (loader / include / group / timer / hmr / logger-console)
 packages/                  @sudive-ai/datum-* layers land here in ROADMAP order
-                           (M1 datum-session → M3 datum-tools → M2 datum-loop),
-                           each built against the vendored kernel
+  vocabulary/              L1 type vocabulary — the fixed language: session event map,
+                           five word maps, agent events, branded IDs, dispatch modes
+  session/                 M1 append-only session facts (JSONL, fail-closed replay)
+  tools/                   M3 capability seams (LLM adapter seam, tool registry, execution seam)
+  loop/                    M2 the default harness (turn/step machine, waterfalls, cancellation)
+  workbench/               M4 local web workbench (HTTP + SSE, config, user plugins)
+examples/
+  hello-agent/             the smallest authoring example: one config + one plugin
 docs/
   ROADMAP.md                milestones and acceptance gates
 AGENTS.md                   working conventions for humans and agents
@@ -52,14 +58,20 @@ The L0 framework kernel is **vendored Cordis** (`vendor/`, see `vendor/README.md
 
 ## Status
 
-Pre-alpha, scaffolding. See [docs/ROADMAP.md](docs/ROADMAP.md) for the build order and the acceptance gate each milestone must pass.
+Pre-alpha, and runnable end to end: vendored L0 kernel → L1 type vocabulary → session facts → LLM seam (OpenAI-compatible + mock) → default harness → local web workbench, with every milestone's acceptance gate as a passing test. User-authored plugins remain the only way domain logic enters. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Getting started
 
 ```sh
 pnpm install
 pnpm build
+pnpm -r --if-present test   # acceptance gates per layer
+pnpm demo                   # hello-agent workbench on http://127.0.0.1:8642 (keyless mock)
 ```
+
+Point the demo at a real model in `examples/hello-agent/start.ts`
+(`llm.provider: 'openai-compatible'` + `baseUrl`), export the API key
+environment variable, and restart — everything else stays the same.
 
 ## Naming
 

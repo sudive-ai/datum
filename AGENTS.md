@@ -10,7 +10,14 @@ vendor/          L0 framework layer, source-vendored and pinned (see vendor/READ
   cosmokit/      @sudive-ai/cosmokit — foundation utilities
   schemastery/   @sudive-ai/schemastery — config schema
   loader,hmr,include,group,timer,logger-console/   @sudive-ai/cordis-plugin-*
-packages/        @sudive-ai/datum-* packages land here in ROADMAP order (datum-session first)
+packages/        @sudive-ai/datum-* packages land here in ROADMAP order
+  vocabulary/    L1 type vocabulary — the fixed language (session events, word maps,
+                 agent events, branded IDs, dispatch modes); extend by declaration merging
+  session/       M1 append-only session facts; fail-closed JSONL reader
+  tools/         M3 capability seams: LLM adapter seam, tool registry, execution seam
+  loop/          M2 default harness: turn/step machine, waterfalls, cancellation
+  workbench/     M4 local web workbench: HTTP+SSE, config resolution, user plugins
+examples/        authoring examples (hello-agent) — the model for domain workbenches
 docs/            roadmap and design notes
 ```
 
