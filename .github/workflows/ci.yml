@@ -33,6 +33,9 @@ jobs:
 
       - run: pnpm build
 
-      # Milestone acceptance-gate tests land per package (node --test);
-      # this stays a no-op until the first test script appears.
+      # Compile-time vocabulary assertions (test/*.test-d.ts) run under
+      # tsc, not under the runtime test runner.
+      - run: pnpm -r --if-present typecheck
+
+      # Milestone acceptance-gate tests land per package (node --test).
       - run: pnpm -r --if-present test

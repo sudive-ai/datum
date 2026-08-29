@@ -9,6 +9,11 @@
     { "path": "vendor/group" },
     { "path": "vendor/include" },
     { "path": "vendor/logger-console" },
-    { "path": "vendor/hmr" }
+    { "path": "vendor/hmr" },
+    { "path": "packages/vocabulary" },
+    { "path": "packages/session" },
+    { "path": "packages/tools" },
+    { "path": "packages/loop" },
+    { "path": "packages/workbench" }
   ]
 }
