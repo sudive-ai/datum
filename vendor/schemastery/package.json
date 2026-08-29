@@ -1,0 +1,38 @@
+{
+  "name": "@sudive-ai/schemastery",
+  "description": "Config schema library (vendored schemastery)",
+  "version": "3.18.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "@sudive-ai/cosmokit": "workspace:^"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudive-ai/datum.git",
+    "directory": "vendor/schemastery"
+  }
+}

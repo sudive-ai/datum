@@ -1,0 +1,43 @@
+{
+  "name": "@sudive-ai/cordis-plugin-logger-console",
+  "description": "Console logger for Cordis (vendored @cordisjs/plugin-logger-console)",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "node": "./lib/index.js",
+      "default": "./lib/browser.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@sudive-ai/cosmokit": "workspace:^",
+    "@sudive-ai/schemastery": "workspace:^",
+    "supports-color": "^9.4.0"
+  },
+  "peerDependencies": {
+    "@sudive-ai/cordis": "workspace:^"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudive-ai/datum.git",
+    "directory": "vendor/logger-console"
+  }
+}

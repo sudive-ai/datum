@@ -1,0 +1,42 @@
+{
+  "name": "@sudive-ai/cordis-plugin-include",
+  "description": "Include plugin for Cordis (vendored @cordisjs/plugin-include)",
+  "version": "1.0.4",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@sudive-ai/cosmokit": "workspace:^",
+    "js-yaml": "^4.1.0"
+  },
+  "peerDependencies": {
+    "@sudive-ai/cordis-plugin-loader": "workspace:^",
+    "@sudive-ai/cordis": "workspace:^"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudive-ai/datum.git",
+    "directory": "vendor/include"
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "@sudive-ai/cordis-plugin-hmr",
+  "description": "Hot Module Replacement Plugin for Cordis (vendored @cordisjs/plugin-hmr)",
+  "version": "1.0.15",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@babel/code-frame": "^7.29.0",
+    "chokidar": "^4.0.3",
+    "@sudive-ai/cosmokit": "workspace:^",
+    "picomatch": "^4.0.3",
+    "@sudive-ai/schemastery": "workspace:^"
+  },
+  "peerDependencies": {
+    "@sudive-ai/cordis": "workspace:^",
+    "@sudive-ai/cordis-plugin-timer": "workspace:^",
+    "@sudive-ai/cordis-plugin-loader": "workspace:^",
+    "@sudive-ai/cordis-plugin-include": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/babel__code-frame": "^7.27.0",
+    "@types/picomatch": "^3.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sudive-ai/datum.git",
+    "directory": "vendor/hmr"
+  }
+}
