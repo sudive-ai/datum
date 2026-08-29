@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "tsBuildInfoFile": "lib/tsbuildinfo"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../vendor/cordis" },
+    { "path": "../vocabulary" },
+    { "path": "../session" },
+    { "path": "../tools" }
+  ]
+}
