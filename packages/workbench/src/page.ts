@@ -212,6 +212,16 @@ export const workbenchPage = `<!doctype html>
     details.appendChild(body)
     return details
   }
+  // Entries live in their own container so the busy indicator is a single
+  // persistent element — the incremental path never removes it, and it must
+  // never accumulate.
+  const entriesEl = document.createElement('div')
+  chat.appendChild(entriesEl)
+  const busyEl = document.createElement('div')
+  busyEl.id = 'busy'
+  busyEl.textContent = '… thinking'
+  busyEl.style.display = 'none'
+  chat.appendChild(busyEl)
   function render(state) {
     // Autoscroll only follows the output when the reader is already at the
     // bottom — scrolling up to read history must never be yanked back.
@@ -224,26 +234,18 @@ export const workbenchPage = `<!doctype html>
     while (divergence < min && keys[divergence] === entryKeys[divergence]) divergence++
     if (divergence === keys.length && keys.length === entryKeys.length && busy === state.busy) return
     while (entryNodes.length > divergence) {
-      chat.removeChild(entryNodes.pop())
+      entriesEl.removeChild(entryNodes.pop())
       entryKeys.pop()
     }
     for (let index = divergence; index < state.entries.length; index++) {
       const node = buildEntry(state.entries[index], index)
       entryNodes.push(node)
       entryKeys.push(keys[index])
-      chat.appendChild(node)
+      entriesEl.appendChild(node)
     }
-    if (state.busy) {
-      const busy = document.createElement('div')
-      busy.id = 'busy'
-      busy.textContent = '… thinking'
-      chat.appendChild(busy)
-    } else {
-      document.getElementById('busy')?.remove()
-    }
-    const previousBusy = busy
+    busyEl.style.display = state.busy ? '' : 'none'
     busy = state.busy
-    if (previousBusy !== state.busy) send.disabled = state.busy
+    send.disabled = state.busy
     if (nearBottom) chat.scrollTop = chat.scrollHeight
   }
 

@@ -96,7 +96,7 @@ test('truncated tool-call arguments (output budget) degrade to a length finish, 
     'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
     'data: [DONE]',
   ]))
-  const response = await adapter.stream(makeRequest(), () => undefined)
+  const response = await adapter.stream!(makeRequest(), () => undefined)
   assert.deepEqual(response.finishReason, { kind: 'length' })
   assert.ok(!response.content.some(block => block.kind === 'tool_call'), 'the unexecutable call is not emitted')
   // ...and the same breakage against a normal finish is an explicit error word.
@@ -105,6 +105,6 @@ test('truncated tool-call arguments (output budget) degrade to a length finish, 
     'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
     'data: [DONE]',
   ]))
-  const broken = await adapter2.stream(makeRequest(), () => undefined)
+  const broken = await adapter2.stream!(makeRequest(), () => undefined)
   assert.deepEqual(broken.finishReason, { kind: 'error', message: 'streamed tool call arguments were not valid JSON' })
 })
