@@ -89,7 +89,8 @@ test('interactive ask: ask_user pauses the turn; the answer lands as user/messag
     const ask = handle.session.entries.find((entry): entry is Extract<SessionEvent, { type: 'ask/requested' }> => entry.type === 'ask/requested')
     assert.ok(ask)
     assert.equal(ask.payload.question, '部署到哪个环境？')
-    const answer = handle.session.entries.find(entry => entry.type === 'user/message' && (entry.payload.source as { kind: string; surface: string }).kind === 'human' && (entry.payload.source as { kind: string; surface: string }).surface === 'ask')
+    const answer = handle.session.entries.find((entry): entry is Extract<SessionEvent, { type: 'user/message' }> =>
+      entry.type === 'user/message' && entry.payload.source.kind === 'human' && entry.payload.source.surface === 'ask')
     assert.ok(answer)
     assert.equal((answer.payload.content[0]! as { text: string }).text, '部署到 production')
 

@@ -387,7 +387,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     for (const entry of session.entries) presenter.apply(entry)
     const loop = createAgentLoop({ context: ctx, session, llm, tools, spec })
     active = { session, loop, presenter }
-    writeFrame('session', { sessionId: session.sessionId })
+    writeFrame('session-switched', { sessionId: session.sessionId })
     return session.sessionId
   }
 

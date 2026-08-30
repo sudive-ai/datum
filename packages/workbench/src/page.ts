@@ -176,6 +176,9 @@ export const workbenchPage = `<!doctype html>
   // --- render: structured entries; expanded state survives re-renders -------
   const openEntries = new Set()
   function render(state) {
+    // Autoscroll only follows the output when the reader is already at the
+    // bottom — scrolling up to read history must never be yanked back.
+    const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80
     chat.innerHTML = ''
     let index = 0
     for (const entry of state.entries) {
@@ -216,7 +219,7 @@ export const workbenchPage = `<!doctype html>
       chat.appendChild(busy)
     }
     send.disabled = state.busy
-    chat.scrollTop = chat.scrollHeight
+    if (nearBottom) chat.scrollTop = chat.scrollHeight
   }
 
   async function post(url, body) {
@@ -257,14 +260,36 @@ export const workbenchPage = `<!doctype html>
   document.getElementById('new-session').addEventListener('click', () => post('/api/sessions', {}))
 
   // --- one live stream drives everything --------------------------------------
+  //
+  // Streaming turns emit many events per second: the stream only marks the
+  // view dirty, and a throttled loop refetches at most ~4x/s, skipping
+  // identical states. Fetch-per-chunk starved the connection pool (SSE
+  // dropped mid-turn) and rebuilt the DOM so fast that clicks never landed.
   const source = new EventSource('/events')
-  source.onmessage = () => {
-    fetch('/api/history').then(response => response.json()).then(render)
-  }
-  source.addEventListener('session', () => {
-    renderSessions()
-    fetch('/api/history').then(response => response.json()).then(render)
+  let historyDirty = false
+  let sessionsDirty = false
+  let lastRendered = ''
+  source.onmessage = () => { historyDirty = true }
+  // A switch/create frame is distinct from the per-event broadcast frames.
+  source.addEventListener('session-switched', () => {
+    sessionsDirty = true
+    historyDirty = true
   })
+  setInterval(() => {
+    if (sessionsDirty) {
+      sessionsDirty = false
+      renderSessions()
+    }
+    if (historyDirty) {
+      historyDirty = false
+      fetch('/api/history').then(response => response.json()).then(state => {
+        const serialized = JSON.stringify(state)
+        if (serialized === lastRendered) return
+        lastRendered = serialized
+        render(state)
+      }).catch(() => undefined)
+    }
+  }, 250)
 
   // --- interactive asking -------------------------------------------------------
   const asks = document.createElement('div')
