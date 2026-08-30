@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context } from '@sudive-ai/cordis'
 import { resolveWorkbenchConfig, startWorkbench, type WorkbenchConfig, type WorkbenchHandle } from '../src/index.ts'
 
 test('config resolution applies defaults and fails loud on garbage', () => {
@@ -260,3 +261,47 @@ test('memory: remember feeds recall and the digest reaches the pre-step system p
     await handle.close()
   }
 })
+
+test('a dangling turn in the database does not crash startup (repair broadcast before bind)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'datum-boot-'))
+  try {
+    // Craft the crashed state: a turn that never ended.
+    const { createSqliteStorage, mountSessionPersistence, openPersistentSessionLog } = await import('@sudive-ai/datum-storage')
+    const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
+    const pre = await openPersistentSessionLog({ context: new Context(), storage })
+    pre.session.append('user/message', {
+      sessionId: pre.session.sessionId,
+      messageId: (await import('@sudive-ai/datum-session')).newMessageId(),
+      content: [{ kind: 'text', text: 'interrupted' }],
+      source: { kind: 'human', surface: 'test' },
+    })
+    pre.session.append('turn/start', {
+      sessionId: pre.session.sessionId,
+      turnId: (await import('@sudive-ai/datum-vocabulary')).brand<'TurnId'>('t-crash'),
+      trigger: (await import('@sudive-ai/datum-vocabulary')).brand<'MessageId'>('m-crash'),
+    })
+    await new Promise(r => setTimeout(r, 50))
+    await pre.disposePersistence()
+    await storage.close()
+
+    // Boot the workbench on that database: the repair broadcast fires while
+    // no session is bound yet — it must not crash, and the view must not
+    // stay busy.
+    const handle = await startWorkbench(resolveWorkbenchConfig({
+      port: 0,
+      agent: { name: 'boot-agent', systemPrompt: '', model: 'mock-model', maxTokens: 64 },
+      llm: { provider: 'mock', apiKeyEnv: 'UNUSED_KEY' },
+      storage: { engine: 'sqlite', path: join(dir, 'datum.db'), connectionStringEnv: 'UNUSED_PG' },
+    }))
+    try {
+      const history = (await (await fetch(`http://127.0.0.1:${handle.port}/api/history`)).json()) as { busy: boolean }
+      assert.equal(history.busy, false)
+    } finally {
+      await handle.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+

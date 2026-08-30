@@ -65,7 +65,11 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
 
   // --- mutable active session (multi-session) -------------------------------
   let persistenceDisposer: (() => Promise<void>) | undefined
-  let active: { session: SessionLog; loop: AgentLoop; presenter: ReturnType<typeof createChatPresenter> }
+  // Definite assignment: listeners registered below fire only after
+  // activate() binds the first session — but the crash-repair append inside
+  // activate() broadcasts BEFORE binding, so every listener must tolerate
+  // `active` being undefined (no active session yet → nothing to project).
+  let active: { session: SessionLog; loop: AgentLoop; presenter: ReturnType<typeof createChatPresenter> } | undefined
 
   const clients = new Set<ServerResponse>()
   const writeFrame = (event: string, data: unknown): void => {
@@ -127,7 +131,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   const disposers: Array<() => unknown> = []
   disposers.push(
     ctx.on('session/event', (event: SessionEvent) => {
-      if (event.payload.sessionId !== active.session.sessionId) return
+      if (active === undefined || event.payload.sessionId !== active!.session.sessionId) return
       active.presenter.apply(event)
       // Broadcast frames stay UNNAMED: the page's onmessage is the one live
       // refetch driver; named frames are reserved for control events (asks,
@@ -159,8 +163,8 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         const choices = Array.isArray(input['choices']) ? (input['choices'] as unknown[]).map(choice => String(choice)) : []
         writeFrame('ask', { id, question, choices })
         // The question is a durable fact the moment it is asked.
-        active.session.append('ask/requested', {
-          sessionId: active.session.sessionId,
+        active!.session.append('ask/requested', {
+          sessionId: active!.session.sessionId,
           askId: brand<'AskId'>(id),
           question,
           choices,
@@ -173,8 +177,8 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
               writeFrame('ask-answered', { id })
               // The answer is user input: it lands in the log as a
               // user/message so the derived history carries it verbatim.
-              active.session.append('user/message', {
-                sessionId: active.session.sessionId,
+              active!.session.append('user/message', {
+                sessionId: active!.session.sessionId,
                 messageId: newMessageId(),
                 content: [{ kind: 'text', text: answer }],
                 source: { kind: 'human', surface: 'ask' },
@@ -447,11 +451,11 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }
     if (request.method === 'GET' && url.pathname === '/api/health') {
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ ok: true, agent: active.loop.name }))
+      response.end(JSON.stringify({ ok: true, agent: active!.loop.name }))
       return
     }
     if (request.method === 'GET' && url.pathname === '/api/history') {
-      const snapshot: ChatViewState = active.presenter.snapshot()
+      const snapshot: ChatViewState = active!.presenter.snapshot()
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify(snapshot))
       return
@@ -459,15 +463,15 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     if (request.method === 'GET' && url.pathname === '/api/sessions') {
       const stored = storage ? await storage.listSessions() : []
       const listed = stored.map(item => ({ sessionId: item.sessionId, lastTime: item.lastTime, entries: item.entries }))
-      if (!listed.some(item => item.sessionId === active.session.sessionId)) {
-        listed.unshift({ sessionId: active.session.sessionId, lastTime: Date.now(), entries: active.session.entries.length })
+      if (!listed.some(item => item.sessionId === active!.session.sessionId)) {
+        listed.unshift({ sessionId: active!.session.sessionId, lastTime: Date.now(), entries: active!.session.entries.length })
       }
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ active: active.session.sessionId, sessions: listed }))
+      response.end(JSON.stringify({ active: active!.session.sessionId, sessions: listed }))
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/sessions') {
-      if (active.loop.running) {
+      if (active!.loop.running) {
         response.writeHead(409, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'a turn is already running' }))
         return
@@ -479,7 +483,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }
     const switchMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/activate$/)
     if (request.method === 'POST' && switchMatch) {
-      if (active.loop.running) {
+      if (active!.loop.running) {
         response.writeHead(409, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'a turn is already running' }))
         return
@@ -487,7 +491,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       const sessionId = decodeURIComponent(switchMatch[1]!) as SessionId
       if (storage) {
         const known = (await storage.listSessions()).some(item => item.sessionId === sessionId)
-        if (!known && sessionId !== active.session.sessionId) {
+        if (!known && sessionId !== active!.session.sessionId) {
           response.writeHead(404, { 'content-type': 'application/json' })
           response.end(JSON.stringify({ error: 'no such session' }))
           return
@@ -506,13 +510,13 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         response.end(JSON.stringify({ error: 'memory-mode sessions cannot be deleted' }))
         return
       }
-      if (active.loop.running) {
+      if (active!.loop.running) {
         response.writeHead(409, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'a turn is already running' }))
         return
       }
       await storage.deleteSession(sessionId)
-      if (sessionId === active.session.sessionId) await activate(undefined)
+      if (sessionId === active!.session.sessionId) await activate(undefined)
       response.writeHead(204)
       response.end()
       return
@@ -535,14 +539,14 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         response.end(JSON.stringify({ error: 'text is required' }))
         return
       }
-      if (active.loop.running) {
+      if (active!.loop.running) {
         response.writeHead(409, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'a turn is already running' }))
         return
       }
       await refreshMemoryDigest() // the pre-step waterfall injects the fresh digest
-      const messageId = active.loop.submit(body.text)
-      void active.loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
+      const messageId = active!.loop.submit(body.text)
+      void active!.loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
       response.writeHead(202, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ messageId }))
       return
@@ -559,7 +563,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/cancel') {
-      active.loop.cancel()
+      active!.loop.cancel()
       response.writeHead(204)
       response.end()
       return
@@ -634,10 +638,10 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     ctx,
     storage,
     get session(): SessionLog {
-      return active.session
+      return active!.session
     },
     get loop(): AgentLoop {
-      return active.loop
+      return active!.loop
     },
     activateSession: (sessionId?: SessionId) => activate(sessionId),
     close: () =>
