@@ -41,6 +41,10 @@ export interface WorkbenchConfig {
     /** Sandbox root, resolved against the process cwd. */
     readonly root: string
   }
+  /** Interactive asking: the agent may pause and ask the user a question. */
+  readonly ask: {
+    readonly enabled: boolean
+  }
   /** Long-term memory composition (remember/recall tools + prompt injection). */
   readonly memory: {
     readonly enabled: boolean
@@ -74,6 +78,11 @@ export const workbenchConfigSchema = Schema.intersect([
   Schema.object({
     port: Schema.natural().default(8642).description('HTTP port for the local workbench'),
     plugins: Schema.array(Schema.string()).default([]).description('user plugin module paths'),
+  }),
+  Schema.object({
+    ask: Schema.object({
+      enabled: Schema.boolean().default(true),
+    }).default({ enabled: true } as never),
   }),
   Schema.object({
     workspace: Schema.object({

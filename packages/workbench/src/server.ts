@@ -3,8 +3,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@sudive-ai/cordis'
-import type { SessionEvent, SessionId } from '@sudive-ai/datum-vocabulary'
-import { SessionLog } from '@sudive-ai/datum-session'
+import type { JsonRecord, SessionEvent, SessionId } from '@sudive-ai/datum-vocabulary'
+import { brand } from '@sudive-ai/datum-vocabulary'
+import { newMessageId, SessionLog } from '@sudive-ai/datum-session'
 import { ApprovalDeniedError, LlmService, MockAdapter, ToolService, createOpenAICompatibleAdapter } from '@sudive-ai/datum-tools'
 import type { LlmAdapter } from '@sudive-ai/datum-tools'
 import { AgentLoop, createAgentLoop } from '@sudive-ai/datum-loop'
@@ -131,6 +132,64 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       writeFrame('session', event)
     }),
   )
+
+  // --- interactive asking: the agent pauses for a user answer ---------------
+  const pendingAsks = new Map<string, { id: string; question: string; choices: readonly string[]; resolve: (answer: string) => void; reject: (error: Error) => void }>()
+  let askCounter = 0
+  if (config.ask.enabled) {
+    tools.register({
+      name: 'ask_user',
+      description: 'Ask the user a question and wait for their answer — use it whenever you need a decision, a choice, or a '
+        + 'confirmation you cannot make yourself. Offer short `choices` for easy selection; leave them empty for free text. '
+        + 'The answer arrives as the tool result (and lands in the conversation history).',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'what you need from the user, phrased as a question' },
+          choices: { type: 'array', items: { type: 'string' }, description: 'short options to pick from; omit for free text' },
+        },
+        required: ['question'],
+      },
+      execute: async (input, context) => {
+        const id = `ask-${++askCounter}`
+        const question = String(input['question'] ?? '')
+        const choices = Array.isArray(input['choices']) ? (input['choices'] as unknown[]).map(choice => String(choice)) : []
+        writeFrame('ask', { id, question, choices })
+        // The question is a durable fact the moment it is asked.
+        active.session.append('ask/requested', {
+          sessionId: active.session.sessionId,
+          askId: brand<'AskId'>(id),
+          question,
+          choices,
+        })
+        return new Promise<JsonRecord>((resolveAsk, rejectAsk) => {
+          pendingAsks.set(id, {
+            id, question, choices,
+            resolve: answer => {
+              pendingAsks.delete(id)
+              writeFrame('ask-answered', { id })
+              // The answer is user input: it lands in the log as a
+              // user/message so the derived history carries it verbatim.
+              active.session.append('user/message', {
+                sessionId: active.session.sessionId,
+                messageId: newMessageId(),
+                content: [{ kind: 'text', text: answer }],
+                source: { kind: 'human', surface: 'ask' },
+              })
+              resolveAsk({ answer })
+            },
+            reject: rejectAsk,
+          })
+          context.signal?.addEventListener('abort', () => {
+            if (pendingAsks.delete(id)) {
+              writeFrame('ask-answered', { id })
+              rejectAsk(new Error('ask cancelled: the turn was aborted'))
+            }
+          }, { once: true })
+        })
+      },
+    })
+  }
 
   // --- interactive approval (opt-in) ----------------------------------------
   const pendingApprovals = new Map<string, { id: string; tool: string; input: unknown; resolve: () => void; reject: (error: ApprovalDeniedError) => void }>()
@@ -498,6 +557,30 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }
     if (request.method === 'POST' && url.pathname === '/api/cancel') {
       active.loop.cancel()
+      response.writeHead(204)
+      response.end()
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/api/asks') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify([...pendingAsks.values()].map(({ id, question, choices }) => ({ id, question, choices }))))
+      return
+    }
+    const askMatch = url.pathname.match(/^\/api\/asks\/([^/]+)$/)
+    if (request.method === 'POST' && askMatch) {
+      const askCase = pendingAsks.get(decodeURIComponent(askMatch[1]!))
+      if (!askCase) {
+        response.writeHead(404, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'no such pending ask' }))
+        return
+      }
+      const body = (await readBody(request)) as { answer?: unknown }
+      if (typeof body.answer !== 'string' || body.answer.length === 0) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'answer is required' }))
+        return
+      }
+      askCase.resolve(body.answer)
       response.writeHead(204)
       response.end()
       return

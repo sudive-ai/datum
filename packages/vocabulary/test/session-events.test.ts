@@ -8,12 +8,13 @@ import {
   assertKnownSessionEventType,
 } from '../src/index.ts'
 
-test('the vocabulary holds the 12 core events plus governance and compaction', () => {
-  assert.equal(KNOWN_SESSION_EVENT_TYPES.length, 15)
-  assert.equal(new Set(KNOWN_SESSION_EVENT_TYPES).size, 15)
+test('the vocabulary holds the 12 core events plus governance, compaction, and asks', () => {
+  assert.equal(KNOWN_SESSION_EVENT_TYPES.length, 16)
+  assert.equal(new Set(KNOWN_SESSION_EVENT_TYPES).size, 16)
   assert.deepEqual([...KNOWN_SESSION_EVENT_TYPES].sort(), [
     'approval/decided',
     'approval/requested',
+    'ask/requested',
     'assistant/chunk',
     'assistant/message',
     'context/compacted',

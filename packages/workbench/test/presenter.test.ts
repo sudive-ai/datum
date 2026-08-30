@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import type { SessionEvent, SessionEventType } from '@sudive-ai/datum-vocabulary'
-import { brand } from '@sudive-ai/datum-vocabulary'
+import { brand, type AskId } from '@sudive-ai/datum-vocabulary'
 import { parseSessionLog, serializeSessionLog, SessionLog } from '@sudive-ai/datum-session'
 import { createChatPresenter } from '../src/index.ts'
 
@@ -56,6 +56,7 @@ function buildEvent(random: () => number, seq: number): SessionEvent {
       case 'approval/requested': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), toolCallId: undefined, action: { tool: 'echo', input: {} } }
       case 'approval/decided': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), decision: 'granted', approver: 'ui' }
       case 'context/compacted': return { sessionId: SESSION, upToSeq: 0 as never, keptFromSeq: seq as never, summary: `s-${seq}` }
+      case 'ask/requested': return { sessionId: SESSION, askId: brand<'AskId'>(`ask-${seq}`), question: `q-${seq}`, choices: [] }
     }
   })()
   return { seq: seq, time: 0, type, payload } as unknown as SessionEvent

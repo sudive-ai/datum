@@ -61,3 +61,19 @@ module silently re-registers), and the model **invents plugin APIs**
 lives in the tool description. After teaching the API in the description,
 the full loop succeeded against DeepSeek: author → approve → load → call the
 brand-new tool (25°C → 77°F).
+
+
+## Addendum 2 — interactive asking (same day)
+
+`ask_user` joins the workbench toolset (`ask.enabled`, default on): the model
+phrases a question with optional `choices`, the turn *blocks* on the user's
+answer, and the UI pops a card (choice buttons + free text) via an `ask` SSE
+frame. Semantics are vocabulary-native: the question is a persistent
+`ask/requested` fact the moment it is asked; the answer lands as a
+`user/message` with surface `ask`, so the derived history carries it verbatim
+and the model-visible equality invariant holds without a second channel. The
+tool result also returns the answer for the current step. Aborting the turn
+cancels the pending ask (the abort signal rejects it — the cancel-leak
+contract covers human waits too). Verified against DeepSeek: the model asked
+with choices, the answer arrived as a user bubble, and the model followed up
+with a second confirmation ask — multi-round negotiation works.

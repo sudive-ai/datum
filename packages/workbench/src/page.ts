@@ -33,6 +33,9 @@ export const workbenchPage = `<!doctype html>
                    border-radius: 8px; background: #2b2205; font-size: 13px; }
   .approval-card pre { font-size: 11px; color: #8b949e; margin: 6px 0; }
   .approval-card button { margin-right: 8px; }
+  .ask-card { margin: 4px 16px; padding: 10px 12px; border: 1px solid #1f6feb;
+              border-radius: 8px; background: #0d1b2e; font-size: 13px; }
+  .ask-card input { margin: 6px 8px 0 0; padding: 6px 8px; }
 </style>
 </head>
 <body>
@@ -120,6 +123,45 @@ export const workbenchPage = `<!doctype html>
     renderSessions()
     fetch('/api/history').then(response => response.json()).then(render)
   })
+
+  // Interactive asking: the agent pauses for your answer.
+  const asks = document.createElement('div')
+  asks.id = 'asks'
+  document.body.insertBefore(asks, document.getElementById('composer'))
+  source.addEventListener('ask', event => {
+    const { id, question, choices } = JSON.parse(event.data)
+    const card = document.createElement('div')
+    card.className = 'ask-card'
+    const label = document.createElement('div')
+    label.textContent = question
+    card.appendChild(label)
+    for (const choice of choices) {
+      const button = document.createElement('button')
+      button.textContent = choice
+      button.onclick = () => answerAsk(id, choice, card)
+      card.appendChild(button)
+    }
+    const input = document.createElement('input')
+    input.placeholder = '或输入你的回答…'
+    card.appendChild(input)
+    const send = document.createElement('button')
+    send.textContent = '回答'
+    send.onclick = () => { const v = input.value.trim(); if (v) answerAsk(id, v, card) }
+    card.appendChild(send)
+    asks.appendChild(card)
+  })
+  source.addEventListener('ask-answered', event => {
+    const { id } = JSON.parse(event.data)
+    document.getElementById('ask-' + id)?.remove()
+  })
+  async function answerAsk(id, answer, card) {
+    await fetch('/api/asks/' + id, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    })
+    card.remove()
+  }
 
   // Governance you can see: guarded tools open an approval card.
   const approvals = document.createElement('div')

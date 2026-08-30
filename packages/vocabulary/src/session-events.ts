@@ -38,6 +38,7 @@ export const KNOWN_SESSION_EVENT_TYPES = [
   'session/end-seed',
   'approval/requested',
   'approval/decided',
+  'ask/requested',
   'context/compacted',
 ] as const satisfies readonly (keyof SessionEventMap)[]
 
@@ -148,6 +149,14 @@ export interface SessionEventMap {
     /** Who decided (approver identity: 'ui', 'policy-plugin', …). */
     readonly approver: string
   }
+  /** The agent asked the user a question and is waiting on their answer. */
+  'ask/requested': {
+    readonly sessionId: SessionId
+    readonly askId: AskId
+    readonly question: string
+    /** Offered options, when the question is a choice; empty for free text. */
+    readonly choices: readonly string[]
+  }
   /** Entries up to `upToSeq` were folded into `summary`; derivation keeps `keptFromSeq` onward. */
   'context/compacted': {
     readonly sessionId: SessionId
@@ -162,6 +171,9 @@ export interface SessionEventMap {
 
 /** Identity of one approval case. */
 export type ApprovalId = Branded<'ApprovalId'>
+
+/** Identity of one ask-user case. */
+export type AskId = Branded<'AskId'>
 
 /** A core event type: one of the members of {@link KNOWN_SESSION_EVENT_TYPES}. */
 export type CoreSessionEventType = (typeof KNOWN_SESSION_EVENT_TYPES)[number]

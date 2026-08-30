@@ -72,6 +72,14 @@ export function createChatPresenter(): ChatPresenter {
               .join(''),
           })
           return
+        case 'ask/requested':
+          messages.push({
+            role: 'assistant',
+            text: event.payload.choices.length > 0
+              ? `${event.payload.question}\n（选项：${event.payload.choices.join(' / ')}）`
+              : event.payload.question,
+          })
+          return
         case 'turn/start':
           busy = true
           return
