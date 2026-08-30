@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import type { SessionEvent, SessionEventType } from '@sudive-ai/datum-vocabulary'
+import type { ApprovalId, SessionEvent, SessionEventType } from '@sudive-ai/datum-vocabulary'
 import { brand } from '@sudive-ai/datum-vocabulary'
 import { deriveMessages } from '../src/index.ts'
 import { parseSessionLog, serializeSessionLog } from '../src/index.ts'
@@ -65,6 +65,10 @@ function buildPayload(random: () => number, seq: number, type: SessionEventType)
       return { sessionId: SESSION, topCallId, context: { messages: [{ role: 'user', content: text }] } }
     case 'session/end-seed':
       return { sessionId: SESSION, reason: { kind: 'completed' } }
+    case 'approval/requested':
+      return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), toolCallId: toolCallId, action: { tool: 'search', input: { q: text } } }
+    case 'approval/decided':
+      return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), decision: random() < 0.5 ? 'granted' : 'denied', approver: 'ui' }
   }
 }
 

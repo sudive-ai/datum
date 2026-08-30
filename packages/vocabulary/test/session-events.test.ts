@@ -8,10 +8,12 @@ import {
   assertKnownSessionEventType,
 } from '../src/index.ts'
 
-test('the core vocabulary holds exactly the 12 named persistent event types', () => {
-  assert.equal(KNOWN_SESSION_EVENT_TYPES.length, 12)
-  assert.equal(new Set(KNOWN_SESSION_EVENT_TYPES).size, 12)
+test('the vocabulary holds the 12 core events plus the two governance events', () => {
+  assert.equal(KNOWN_SESSION_EVENT_TYPES.length, 14)
+  assert.equal(new Set(KNOWN_SESSION_EVENT_TYPES).size, 14)
   assert.deepEqual([...KNOWN_SESSION_EVENT_TYPES].sort(), [
+    'approval/decided',
+    'approval/requested',
     'assistant/chunk',
     'assistant/message',
     'request/context',

@@ -31,6 +31,8 @@ export type Content = WordOf<ContentMap>
 export interface ContentBlockMap {
   /** A text block as returned by a provider. */
   text: { readonly text: string }
+  /** Model reasoning surfaced beside the answer (e.g. DeepSeek's reasoning_content). */
+  thinking: { readonly text: string }
   /** An image block: base64 `data` with its IANA `mediaType`. */
   image: { readonly mediaType: string; readonly data: string }
   /** A tool invocation requested by the model. */

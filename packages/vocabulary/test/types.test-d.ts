@@ -95,6 +95,8 @@ function describeBlock(block: ContentBlock): string {
   switch (block.kind) {
     case 'text':
       return block.text
+    case 'thinking':
+      return block.text
     case 'image':
       return block.mediaType
     case 'tool_call':

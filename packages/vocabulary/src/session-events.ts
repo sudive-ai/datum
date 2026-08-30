@@ -1,6 +1,10 @@
 import type { Content, ContentBlock, FinishReason, MessageSource, TurnEndReason } from './vocabulary.ts'
 import type { JsonRecord } from './json.ts'
+import type { Branded } from './brand.ts'
 import type { EntrySeq, MessageId, SessionId, StepId, ToolCallId, TopCallId, TurnId } from './ids.ts'
+
+/** How a governance decision came out. */
+export type ApprovalDecision = 'granted' | 'denied' | 'unavailable'
 
 /**
  * The version of the persisted session-log format this vocabulary defines.
@@ -32,6 +36,8 @@ export const KNOWN_SESSION_EVENT_TYPES = [
   'request/header',
   'request/context',
   'session/end-seed',
+  'approval/requested',
+  'approval/decided',
 ] as const satisfies readonly (keyof SessionEventMap)[]
 
 /**
@@ -125,9 +131,28 @@ export interface SessionEventMap {
     readonly sessionId: SessionId
     readonly reason: TurnEndReason
   }
+  /** A guarded action asked for approval — the chokepoint opened a case. */
+  'approval/requested': {
+    readonly sessionId: SessionId
+    readonly approvalId: ApprovalId
+    readonly toolCallId: ToolCallId | undefined
+    /** What wants to run: tool name, input, and any policy context. */
+    readonly action: JsonRecord
+  }
+  /** The decision on an approval case — every governance decision is a fact. */
+  'approval/decided': {
+    readonly sessionId: SessionId
+    readonly approvalId: ApprovalId
+    readonly decision: ApprovalDecision
+    /** Who decided (approver identity: 'ui', 'policy-plugin', …). */
+    readonly approver: string
+  }
 }
 
-/** A core event type: one of the 12 members of {@link KNOWN_SESSION_EVENT_TYPES}. */
+/** Identity of one approval case. */
+export type ApprovalId = Branded<'ApprovalId'>
+
+/** A core event type: one of the members of {@link KNOWN_SESSION_EVENT_TYPES}. */
 export type CoreSessionEventType = (typeof KNOWN_SESSION_EVENT_TYPES)[number]
 
 /** Any event type in the current vocabulary (core types plus merged extensions). */
