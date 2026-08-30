@@ -29,3 +29,4 @@ datum.db
 # probe scratch dirs
 .cache-probe-*
 .fiber-probe-*
+.fiber-probe2-*
