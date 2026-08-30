@@ -77,3 +77,17 @@ cancels the pending ask (the abort signal rejects it — the cancel-leak
 contract covers human waits too). Verified against DeepSeek: the model asked
 with choices, the answer arrived as a user bubble, and the model followed up
 with a second confirmation ask — multi-round negotiation works.
+
+
+## Addendum 3 — structured message rendering (same day)
+
+The chat view upgraded from flat text bubbles to a structured entry stream:
+prose stays as bubbles, while thinking, tool calls, and directory listings
+fold into collapsed activity entries (native `<details>`, expand on click);
+file tools (read_file/write_file) complete their activity with a viewable
+file — clickable summary, content inline. Expanded/collapsed state survives
+re-renders (the live SSE stream refetches frequently). The presenter remains
+the single rendering path — live = replay over the new entry shape — and a
+backward-compatible `messages` projection is kept in the snapshot for simple
+renderers and tests. Verified against DeepSeek: one turn folded into
+user → thinking → listing → thinking → file view → thinking → prose.

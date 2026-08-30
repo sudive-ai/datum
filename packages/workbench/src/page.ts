@@ -29,6 +29,17 @@ export const workbenchPage = `<!doctype html>
            background: #21262d; color: inherit; cursor: pointer; font: inherit; }
   button:disabled { opacity: 0.5; cursor: default; }
   #busy { font-size: 12px; color: #d29922; align-self: flex-start; }
+  details.activity { align-self: flex-start; max-width: 80%; border: 1px solid #21262d;
+                     border-radius: 8px; background: #10151c; font-size: 12.5px; }
+  details.activity.is-error { border-color: #f85149; }
+  details.activity summary { cursor: pointer; padding: 6px 10px; color: #8b949e; user-select: none; list-style: none; }
+  details.activity summary::before { content: '▸ '; }
+  details.activity[open] summary::before { content: '▾ '; }
+  details.activity pre { margin: 0; padding: 8px 12px; border-top: 1px solid #21262d;
+                         white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;
+                         color: #c9d1d9; font-size: 12px; }
+  details.file summary { color: #58a6ff; }
+  details.file pre { background: #0d1117; }
   .approval-card { margin: 4px 16px; padding: 10px 12px; border: 1px solid #d29922;
                    border-radius: 8px; background: #2b2205; font-size: 13px; }
   .approval-card pre { font-size: 11px; color: #8b949e; margin: 6px 0; }
@@ -56,13 +67,36 @@ export const workbenchPage = `<!doctype html>
   const send = document.getElementById('send')
   const cancel = document.getElementById('cancel')
 
+  // Expanded details survive re-renders (the live stream refetches often).
+  const openEntries = new Set()
   function render(state) {
     chat.innerHTML = ''
-    for (const message of state.messages) {
-      const div = document.createElement('div')
-      div.className = 'msg ' + message.role
-      div.textContent = message.text
-      chat.appendChild(div)
+    let index = 0
+    for (const entry of state.entries) {
+      if (entry.kind === 'message') {
+        const div = document.createElement('div')
+        div.className = 'msg ' + entry.role
+        div.textContent = entry.text
+        chat.appendChild(div)
+      } else {
+        const id = 'act-' + index
+        const details = document.createElement('details')
+        details.className = 'activity' + (entry.isError ? ' is-error' : '') + (entry.file ? ' file' : '')
+        details.id = id
+        if (openEntries.has(id)) details.open = true
+        details.addEventListener('toggle', () => {
+          if (details.open) openEntries.add(id)
+          else openEntries.delete(id)
+        })
+        const summary = document.createElement('summary')
+        summary.textContent = (entry.file ? '' : '') + entry.text
+        details.appendChild(summary)
+        const body = document.createElement('pre')
+        body.textContent = entry.file ? entry.file.content : (entry.detail ?? '')
+        details.appendChild(body)
+        chat.appendChild(details)
+      }
+      index++
     }
     if (state.busy) {
       const busy = document.createElement('div')

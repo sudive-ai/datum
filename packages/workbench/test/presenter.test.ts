@@ -134,3 +134,71 @@ test('tool feedback and chunks do not render as chat bubbles', () => {
   assert.equal(view.messages.length, 2)
   assert.deepEqual(view.messages.map(message => message.role), ['user', 'assistant'])
 })
+
+test('thinking and tool calls fold into collapsed activities, not bubbles', () => {
+  const presenter = createChatPresenter()
+  presenter.apply({ seq: 0 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION,
+    topCallId: brand<'TopCallId'>('c-1'),
+    messageId: brand<'MessageId'>('m-1'),
+    content: [
+      { kind: 'thinking', text: '让我先看看文件' },
+      { kind: 'tool_call', toolCallId: brand<'ToolCallId'>('tc-1'), name: 'read_file', input: { path: 'notes.md' } },
+      { kind: 'text', text: '这是正文。' },
+    ],
+    chunkSeqs: [0],
+    finishReason: { kind: 'stop' },
+  } })
+  const entries = presenter.snapshot().entries
+  assert.deepEqual(entries.map(entry => [entry.kind, entry.text]), [
+    ['activity', '💭 思考过程'],
+    ['activity', '🔧 调用 read_file'],
+    ['message', '这是正文。'],
+  ])
+  assert.match(entries[0]!.detail ?? '', /让我先看看文件/)
+  assert.match(entries[1]!.detail ?? '', /notes\.md/)
+})
+
+test('tool results complete their activity: read_file yields a viewable file', () => {
+  const presenter = createChatPresenter()
+  presenter.apply({ seq: 0 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION, topCallId: brand<'TopCallId'>('c-1'), messageId: brand<'MessageId'>('m-1'),
+    content: [{ kind: 'tool_call', toolCallId: brand<'ToolCallId'>('tc-1'), name: 'read_file', input: { path: 'notes.md' } }],
+    chunkSeqs: [0], finishReason: { kind: 'tool_call' },
+  } })
+  presenter.apply({ seq: 1 as never, time: 0, type: 'tool/result', payload: {
+    sessionId: SESSION, toolCallId: brand<'ToolCallId'>('tc-1'),
+    output: { content: '# 笔记内容' }, isError: false,
+  } })
+  const entry = presenter.snapshot().entries[0]!
+  assert.equal(entry.text, '📄 读取 notes.md')
+  assert.deepEqual(entry.file, { path: 'notes.md', content: '# 笔记内容' })
+})
+
+test('write_file results carry the written content as a viewable file; failures mark the entry', () => {
+  const presenter = createChatPresenter()
+  presenter.apply({ seq: 0 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION, topCallId: brand<'TopCallId'>('c-1'), messageId: brand<'MessageId'>('m-1'),
+    content: [{ kind: 'tool_call', toolCallId: brand<'ToolCallId'>('tc-2'), name: 'write_file', input: { path: 'out.md', content: '新内容' } }],
+    chunkSeqs: [0], finishReason: { kind: 'tool_call' },
+  } })
+  presenter.apply({ seq: 1 as never, time: 0, type: 'tool/result', payload: {
+    sessionId: SESSION, toolCallId: brand<'ToolCallId'>('tc-2'), output: { written: 'out.md' }, isError: false,
+  } })
+  const ok = presenter.snapshot().entries[0]!
+  assert.equal(ok.text, '✏️ 写入 out.md')
+  assert.deepEqual(ok.file, { path: 'out.md', content: '新内容' })
+
+  presenter.apply({ seq: 2 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION, topCallId: brand<'TopCallId'>('c-2'), messageId: brand<'MessageId'>('m-2'),
+    content: [{ kind: 'tool_call', toolCallId: brand<'ToolCallId'>('tc-3'), name: 'write_file', input: { path: 'bad.md', content: 'x' } }],
+    chunkSeqs: [0], finishReason: { kind: 'tool_call' },
+  } })
+  presenter.apply({ seq: 3 as never, time: 0, type: 'tool/result', payload: {
+    sessionId: SESSION, toolCallId: brand<'ToolCallId'>('tc-3'), output: { message: 'disk full' }, isError: true,
+  } })
+  const failed = presenter.snapshot().entries[1]!
+  assert.equal(failed.isError, true)
+  assert.match(failed.text, /write_file（失败）/)
+  assert.equal(failed.file, undefined)
+})
