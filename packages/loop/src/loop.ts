@@ -1,5 +1,6 @@
 import type { Context } from '@sudive-ai/cordis'
 import type {
+  ApprovalId,
   ChatMessage,
   ContentBlock,
   FinishReason,
@@ -13,10 +14,15 @@ import type {
   TurnId,
 } from '@sudive-ai/datum-vocabulary'
 import { deriveMessages, newMessageId, SessionLog } from '@sudive-ai/datum-session'
-import { LlmService, ToolService } from '@sudive-ai/datum-tools'
+import {
+  ApprovalDeniedError,
+  ApprovalUnavailableError,
+  LlmService,
+  ToolService,
+} from '@sudive-ai/datum-tools'
 import type { ChatRequest } from '@sudive-ai/datum-tools'
 import type { AgentSpec } from './agent.ts'
-import { newStepId, newTopCallId, newTurnId } from './ids.ts'
+import { newApprovalId, newStepId, newTopCallId, newTurnId } from './ids.ts'
 
 /** Everything an {@link AgentLoop} drives; all seams, no concretes. */
 export interface LoopDeps {
@@ -206,8 +212,16 @@ export class AgentLoop {
 
       this._status('acting', `step ${round} requesting ${requestDraft.model}`)
       let response
+      let chunkSeq = 0
       try {
-        response = await this._llm.chat(chatRequest)
+        response = await this._llm.stream(chatRequest, delta => {
+          // Replay fidelity: every streamed piece is its own logged chunk.
+          this.session.append('assistant/chunk', {
+            sessionId, topCallId, chunkSeq,
+            delta: { kind: delta.kind, text: delta.delta },
+          })
+          chunkSeq++
+        })
       } catch (error) {
         // An aborted signal turns any provider failure into cancellation —
         // the cancel-leak contract: the turn ends `aborted`, never `error`.
@@ -220,16 +234,19 @@ export class AgentLoop {
         return cancelled ? { kind: 'aborted' } : { kind: 'error', message: String(error) }
       }
 
-      // Replay fidelity: the full response lands as one chunk, referenced by
-      // the assembled message. Streamed adapters append more chunks later.
-      this.session.append('assistant/chunk', {
-        sessionId, topCallId, chunkSeq: 0, delta: { content: response.content },
-      })
+      // A non-streaming adapter produced no deltas: the full response lands
+      // as one chunk, so every message always references its chunks.
+      if (chunkSeq === 0) {
+        this.session.append('assistant/chunk', {
+          sessionId, topCallId, chunkSeq: 0, delta: { content: response.content },
+        })
+        chunkSeq = 1
+      }
       const messageId = newMessageId()
       this.session.append('assistant/message', {
         sessionId, topCallId, messageId,
         content: response.content,
-        chunkSeqs: [0],
+        chunkSeqs: Array.from({ length: chunkSeq }, (_, index) => index),
         finishReason: response.finishReason,
       })
 
@@ -261,11 +278,47 @@ export class AgentLoop {
         name: block.name,
         input: block.input,
       })
+      // Governance is a logged fact: a guarded tool opens an approval case
+      // before the chokepoint, and the decision lands whatever it is.
+      let approvalId: ApprovalId | undefined
+      let requiresApproval = false
+      try {
+        requiresApproval = this._tools.get(block.name).requiresApproval === true
+      } catch {
+        requiresApproval = false // unknown tool: the execute chokepoint refuses below
+      }
+      if (requiresApproval) {
+        approvalId = newApprovalId()
+        this.session.append('approval/requested', {
+          sessionId,
+          approvalId,
+          toolCallId: block.toolCallId,
+          action: { tool: block.name, input: block.input },
+        })
+      }
       let output: JsonRecord
       let isError = false
       try {
         output = await this._tools.execute(block.name, block.input, { signal })
+        if (approvalId) {
+          this.session.append('approval/decided', {
+            sessionId, approvalId,
+            decision: 'granted',
+            approver: this._tools.approver ?? 'unknown',
+          })
+        }
       } catch (error) {
+        if (approvalId) {
+          this.session.append('approval/decided', {
+            sessionId, approvalId,
+            decision: error instanceof ApprovalUnavailableError
+              ? 'unavailable'
+              : error instanceof ApprovalDeniedError ? 'denied' : 'denied',
+            approver: error instanceof ApprovalDeniedError
+              ? error.approver
+              : error instanceof ApprovalUnavailableError ? 'none' : this._tools.approver ?? 'unknown',
+          })
+        }
         output = { message: String(error) }
         isError = true
       }

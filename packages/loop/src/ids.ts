@@ -1,4 +1,4 @@
-import { brand, type StepId, type TopCallId, type TurnId } from '@sudive-ai/datum-vocabulary'
+import { brand, type ApprovalId, type StepId, type TopCallId, type TurnId } from '@sudive-ai/datum-vocabulary'
 
 let turnCounter = 0
 let stepCounter = 0
@@ -30,4 +30,15 @@ export function newStepId(): StepId {
  */
 export function newTopCallId(): TopCallId {
   return brand<'TopCallId'>(`call-${++topCallCounter}-${Math.random().toString(36).slice(2, 8)}`)
+}
+
+let approvalCounter = 0
+
+/**
+ * Mint a fresh approval-case id.
+ *
+ * @returns a new `ApprovalId`.
+ */
+export function newApprovalId(): ApprovalId {
+  return brand<'ApprovalId'>(`appr-${++approvalCounter}-${Math.random().toString(36).slice(2, 8)}`)
 }

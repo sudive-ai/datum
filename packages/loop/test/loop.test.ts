@@ -228,6 +228,53 @@ test('runTurn refuses concurrent turns (one driver per loop)', async () => {
   await pending
 })
 
+test('streaming: every delta lands as its own chunk and the message references all of them', async () => {
+  const { loop, log } = rig({
+    script: [{
+      finishReason: { kind: 'stop' },
+      content: [{ kind: 'text', text: 'alpha' }, { kind: 'text', text: 'beta' }],
+      usage: null,
+    }],
+  })
+  const message = loop.submit('stream please')
+  await loop.runTurn(message)
+
+  const chunks = log.entries.filter(entry => entry.type === 'assistant/chunk')
+  assert.equal(chunks.length, 2)
+  assert.deepEqual(chunks.map(chunk => chunk.payload.delta), [
+    { kind: 'text', text: 'alpha' },
+    { kind: 'text', text: 'beta' },
+  ])
+  const assembled = log.entries.find(entry => entry.type === 'assistant/message')!
+  assert.deepEqual(assembled.payload.chunkSeqs, [0, 1])
+})
+
+test('non-streaming adapter: the response still lands as one chunk with a fallback', async () => {
+  const { ctx, log } = rig()
+  // A provider that cannot stream at all — service.stream falls back to chat.
+  ctx.llm.use({
+    name: 'plain',
+    chat: async () => ({ finishReason: { kind: 'stop' }, content: [{ kind: 'text', text: 'whole reply' }], usage: null }),
+  })
+  const loop = new AgentLoop({
+    context: ctx,
+    session: log,
+    llm: ctx.llm,
+    tools: ctx.tools,
+    spec: { name: 'plain-agent', systemPrompt: '', model: 'm', maxTokens: 16, options: {}, surface: 'test' },
+  })
+  const message = loop.submit('no stream')
+  await loop.runTurn(message)
+
+  const chunks = log.entries.filter(entry => entry.type === 'assistant/chunk')
+  assert.equal(chunks.length, 1)
+  assert.deepEqual(chunks[0]!.payload.delta, {
+    content: [{ kind: 'text', text: 'whole reply' }],
+  })
+  const assembled = log.entries.find(entry => entry.type === 'assistant/message')!
+  assert.deepEqual(assembled.payload.chunkSeqs, [0])
+})
+
 test('factory seam: setLoopFactory swaps the whole harness, reversibly', () => {
   const { ctx, log } = rig()
   class CustomLoop extends AgentLoop {
