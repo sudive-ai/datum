@@ -42,19 +42,69 @@ export interface ToolDefinition {
 /** The approval chokepoint: decides whether a guarded tool may run. */
 export type ExecutionGuard = (tool: ToolDefinition, input: JsonRecord) => void | Promise<void>
 
+/**
+ * A guarded tool needed approval but no approver is mounted — the
+ * fail-closed default. Distinct from a denial so callers can tell
+ * "nobody could decide" from "somebody said no".
+ */
+export class ApprovalUnavailableError extends Error {
+  /** The tool that was refused. */
+  readonly tool: string
+
+  /**
+   * @param tool — the tool that was refused.
+   */
+  constructor(tool: string) {
+    super(`approval unavailable: tool ${JSON.stringify(tool)} requires approval and no approver is mounted`)
+    this.name = 'ApprovalUnavailableError'
+    this.tool = tool
+  }
+}
+
+/** An approver explicitly refused a guarded action. */
+export class ApprovalDeniedError extends Error {
+  /** The tool that was refused. */
+  readonly tool: string
+  /** The approver identity that said no. */
+  readonly approver: string
+
+  /**
+   * @param tool — the tool that was refused.
+   * @param approver — who said no.
+   * @param detail — the denial reason.
+   * @param options — standard Error options (`cause`).
+   */
+  constructor(tool: string, approver: string, detail: string, options?: ErrorOptions) {
+    super(`approval denied for tool ${JSON.stringify(tool)} by ${approver}: ${detail}`, options)
+    this.name = 'ApprovalDeniedError'
+    this.tool = tool
+    this.approver = approver
+  }
+}
+
 export class ToolService extends Service {
   private readonly _tools = new Map<string, ToolDefinition>()
   private _guard: ExecutionGuard | undefined
+  private _approver = 'mounted-approver'
+
+  /** The mounted approver's identity, when one is mounted. */
+  get approver(): string | undefined {
+    return this._guard ? this._approver : undefined
+  }
 
   /**
    * Mount (or with `undefined`, unmount) the approval chokepoint.
    *
    * @param guard — invoked before every `requiresApproval` tool executes.
-   *   Throw inside the guard to refuse. With no guard mounted, guarded tools
-   *   refuse outright (fail closed — nothing degrades into allow).
+   *   Throw inside the guard to refuse; any throw is normalized into
+   *   {@link ApprovalDeniedError}. With no guard mounted, guarded tools
+   *   refuse outright with {@link ApprovalUnavailableError} (fail closed —
+   *   nothing degrades into allow).
+   * @param approver — the mount's identity, carried on decisions.
    */
-  setGuard(guard: ExecutionGuard | undefined): void {
+  setGuard(guard: ExecutionGuard | undefined, approver: string = 'mounted-approver'): void {
     this._guard = guard
+    this._approver = approver
   }
 
   /**
@@ -102,16 +152,20 @@ export class ToolService extends Service {
    * @param input — the model-produced input.
    * @param context — cancellation scope.
    * @returns the tool's result.
-   * @throws when no such tool exists; or when the tool requires approval and
-   *   no guard is mounted (`approval unavailable` — fail closed).
+   * @throws {@link ApprovalUnavailableError} when the tool requires approval
+   *   and no approver is mounted; {@link ApprovalDeniedError} when the
+   *   mounted approver refuses; any tool execution failure passes through.
    */
   async execute(name: string, input: JsonRecord, context: ToolContext): Promise<JsonRecord> {
     const tool = this.get(name)
     if (tool.requiresApproval === true) {
-      if (!this._guard) {
-        throw new Error(`approval unavailable: tool ${JSON.stringify(name)} requires approval and no approver is mounted`)
+      if (!this._guard) throw new ApprovalUnavailableError(name)
+      try {
+        await this._guard(tool, input)
+      } catch (error) {
+        if (error instanceof ApprovalDeniedError) throw error
+        throw new ApprovalDeniedError(name, this._approver, String(error), { cause: error })
       }
-      await this._guard(tool, input)
     }
     return tool.execute(input, context)
   }

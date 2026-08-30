@@ -16,5 +16,9 @@ export * from './llm/openai-compatible.ts'
 export * from './llm/mock.ts'
 /** Tool registry: reversible capability registration, mounted as `ctx.tools`. */
 export * from './tools/service.ts'
-/** Execution seam Definition: exact-argv machine access (providers land later). */
+/** Execution seam Definition: exact-argv machine access. */
 export * from './execution/seam.ts'
+/** Execution Provider: local filesystem over exact argv, root-confinement policy. */
+export * from './execution/fs-local.ts'
+/** Execution Provider: local processes over exact argv, allowlist policy. */
+export * from './execution/shell-local.ts'

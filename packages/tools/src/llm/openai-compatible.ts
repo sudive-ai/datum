@@ -1,5 +1,5 @@
 import { brand, type Content, type ContentBlock, type FinishReason, type JsonRecord } from '@sudive-ai/datum-vocabulary'
-import type { ChatRequest, ChatResponse, LlmAdapter, ToolView } from './seam.ts'
+import type { ChatDelta, ChatRequest, ChatResponse, LlmAdapter, ToolView } from './seam.ts'
 
 /** Configuration for {@link createOpenAICompatibleAdapter}; all fields required (fail loud). */
 export interface OpenAICompatibleConfig {
@@ -34,6 +34,78 @@ export function createOpenAICompatibleAdapter(
 
   return {
     name: 'openai-compatible',
+
+    async stream(request: ChatRequest, onDelta: (delta: ChatDelta) => void): Promise<ChatResponse> {
+      const response = await fetchImpl(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify({ ...encodeRequest(request), stream: true }),
+        signal: request.signal ?? null,
+      })
+      if (!response.ok || !response.body) {
+        const detail = await response.text().catch(() => '')
+        throw new Error(`openai-compatible adapter: provider answered ${response.status}: ${detail.slice(0, 500)}`)
+      }
+
+      let text = ''
+      let thinking = ''
+      // OpenAI streams tool calls as index-keyed fragments that concatenate.
+      const toolCalls = new Map<number, { id: string; name: string; arguments: string }>()
+      let finish: unknown
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      for await (const chunk of response.body) {
+        buffer += decoder.decode(chunk as Buffer, { stream: true })
+        let newline = buffer.indexOf('\n')
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim()
+          buffer = buffer.slice(newline + 1)
+          newline = buffer.indexOf('\n')
+          if (!line.startsWith('data:')) continue
+          const payload = line.slice(5).trim()
+          if (payload === '[DONE]') continue
+          applyStreamChunk(JSON.parse(payload), {
+            onText: piece => {
+              text += piece
+              onDelta({ kind: 'text', delta: piece })
+            },
+            onThinking: piece => {
+              thinking += piece
+              onDelta({ kind: 'thinking', delta: piece })
+            },
+            onToolCall: (index, id, name, argumentsPiece) => {
+              const current = toolCalls.get(index) ?? { id: '', name: '', arguments: '' }
+              if (id) current.id = id
+              if (name) current.name = name
+              current.arguments += argumentsPiece
+              toolCalls.set(index, current)
+            },
+            onFinish: reason => {
+              finish = reason
+            },
+          })
+        }
+      }
+
+      const content: ContentBlock[] = []
+      if (thinking.length > 0) content.push({ kind: 'thinking', text: thinking })
+      if (text.length > 0) content.push({ kind: 'text', text })
+      for (const key of [...toolCalls.keys()].sort((a, b) => a - b)) {
+        const call = toolCalls.get(key)!
+        let input: JsonRecord
+        try {
+          input = JSON.parse(call.arguments || '{}') as JsonRecord
+        } catch (cause) {
+          throw new TypeError('openai-compatible adapter: streamed tool call arguments are not valid JSON', { cause })
+        }
+        content.push({ kind: 'tool_call', toolCallId: brand<'ToolCallId'>(call.id), name: call.name, input })
+      }
+      return { finishReason: decodeFinishReason(finish), content, usage: null, providerFinish: typeof finish === 'string' ? finish : undefined }
+    },
 
     async chat(request: ChatRequest): Promise<ChatResponse> {
       const body = encodeRequest(request)
@@ -121,6 +193,38 @@ function decodeResponse(raw: unknown): ChatResponse {
     content,
     usage: (body['usage'] ?? null) as JsonRecord | null,
     providerFinish: typeof choice['finish_reason'] === 'string' ? choice['finish_reason'] : undefined,
+  }
+}
+
+/** Handlers applied to one `data:` chunk of an OpenAI stream. */
+function applyStreamChunk(raw: unknown, handlers: {
+  onText: (piece: string) => void
+  onThinking: (piece: string) => void
+  onToolCall: (index: number, id: string, name: string, argumentsPiece: string) => void
+  onFinish: (reason: unknown) => void
+}): void {
+  if (raw === null || typeof raw !== 'object') return
+  const body = raw as Record<string, unknown>
+  const choice = (body['choices'] as Array<Record<string, unknown>> | undefined)?.[0]
+  if (!choice) return
+  const delta = (choice['delta'] ?? {}) as Record<string, unknown>
+  if (typeof delta['content'] === 'string') handlers.onText(delta['content'])
+  const reasoning = delta['reasoning_content'] ?? delta['reasoning']
+  if (typeof reasoning === 'string') handlers.onThinking(reasoning)
+  if (Array.isArray(delta['tool_calls'])) {
+    for (const fragment of delta['tool_calls'] as Array<Record<string, unknown>>) {
+      const index = typeof fragment['index'] === 'number' ? fragment['index'] : 0
+      const fn = (fragment['function'] ?? {}) as Record<string, unknown>
+      handlers.onToolCall(
+        index,
+        typeof fragment['id'] === 'string' ? fragment['id'] : '',
+        typeof fn['name'] === 'string' ? fn['name'] : '',
+        typeof fn['arguments'] === 'string' ? fn['arguments'] : '',
+      )
+    }
+  }
+  if (choice['finish_reason'] !== undefined && choice['finish_reason'] !== null) {
+    handlers.onFinish(choice['finish_reason'])
   }
 }
 

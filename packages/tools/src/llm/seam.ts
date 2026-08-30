@@ -44,6 +44,13 @@ export interface ChatResponse {
   readonly providerFinish?: string | undefined
 }
 
+/** One incremental piece of a streaming response. */
+export interface ChatDelta {
+  readonly kind: 'text' | 'thinking'
+  /** The piece of text that arrived. */
+  readonly delta: string
+}
+
 /**
  * The LLM seam's Definition role: everything a consumer may rely on and a
  * provider must fulfill. Two adapters complete the seam — an OpenAI-compatible
@@ -61,4 +68,15 @@ export interface LlmAdapter {
    *   facts, adapters must not swallow them.
    */
   chat(request: ChatRequest): Promise<ChatResponse>
+  /**
+   * Place one chat request as a stream, reporting deltas as they arrive.
+   * Optional: consumers fall back to {@link chat} when absent. The returned
+   * response is always the complete assembled one — deltas are a live view,
+   * the response is the fact.
+   *
+   * @param request — the normalized request.
+   * @param onDelta — called with each incremental piece, in arrival order.
+   * @returns the complete normalized response.
+   */
+  stream?(request: ChatRequest, onDelta: (delta: ChatDelta) => void): Promise<ChatResponse>
 }

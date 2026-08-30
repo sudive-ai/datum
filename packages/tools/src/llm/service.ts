@@ -1,5 +1,5 @@
 import { Service, type Context } from '@sudive-ai/cordis'
-import type { ChatRequest, ChatResponse, LlmAdapter } from './seam.ts'
+import type { ChatDelta, ChatRequest, ChatResponse, LlmAdapter } from './seam.ts'
 
 /**
  * The LLM seam's Consumer role, mounted as `ctx.llm`.
@@ -47,6 +47,19 @@ export class LlmService extends Service {
    */
   chat(request: ChatRequest): Promise<ChatResponse> {
     return this.adapter.chat(request)
+  }
+
+  /**
+   * Place one chat request as a stream; falls back to the non-streaming
+   * `chat` (no deltas) when the mounted adapter cannot stream.
+   *
+   * @param request — the normalized request.
+   * @param onDelta — receives each incremental piece, in arrival order.
+   * @returns the complete normalized response.
+   */
+  stream(request: ChatRequest, onDelta: (delta: ChatDelta) => void): Promise<ChatResponse> {
+    const adapter = this.adapter
+    return adapter.stream ? adapter.stream(request, onDelta) : adapter.chat(request)
   }
 }
 

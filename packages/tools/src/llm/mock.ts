@@ -1,5 +1,5 @@
 import { deepFreeze } from '../freeze.ts'
-import type { ChatRequest, ChatResponse, LlmAdapter } from './seam.ts'
+import type { ChatDelta, ChatRequest, ChatResponse, LlmAdapter } from './seam.ts'
 
 /**
  * Canonical JSON key of a request — the snapshot identity for the mock.
@@ -61,6 +61,14 @@ export class MockAdapter implements LlmAdapter {
   /** How many snapshots are held. */
   get snapshotCount(): number {
     return this._snapshots.size
+  }
+
+  async stream(request: ChatRequest, onDelta: (delta: ChatDelta) => void): Promise<ChatResponse> {
+    const response = await this.chat(request)
+    for (const block of response.content) {
+      if (block.kind === 'text') onDelta({ kind: 'text', delta: block.text })
+    }
+    return response
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
