@@ -93,5 +93,21 @@ export async function openPersistentSessionLog(options: {
     ? new SessionLog({ context, sessionId: stored, entries })
     : new SessionLog({ context, entries })
   const disposePersistence = mountSessionPersistence({ context, session, storage })
+  // Crash repair: a turn interrupted by a restart has a turn/start with no
+  // matching turn/end — the restored view would show it running forever.
+  // The restart aborted it; that fact belongs in the log.
+  let lastStart: Extract<import('@sudive-ai/datum-vocabulary').SessionEvent, { type: 'turn/start' }> | undefined
+  let lastEndSeq = -1
+  for (const entry of session.entries) {
+    if (entry.type === 'turn/start') lastStart = entry
+    if (entry.type === 'turn/end') lastEndSeq = entry.seq
+  }
+  if (lastStart && lastStart.seq > lastEndSeq) {
+    session.append('turn/end', {
+      sessionId: session.sessionId,
+      turnId: lastStart.payload.turnId,
+      reason: { kind: 'aborted' },
+    })
+  }
   return { session, disposePersistence }
 }

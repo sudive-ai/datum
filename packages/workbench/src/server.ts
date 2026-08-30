@@ -129,7 +129,10 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     ctx.on('session/event', (event: SessionEvent) => {
       if (event.payload.sessionId !== active.session.sessionId) return
       active.presenter.apply(event)
-      writeFrame('session', event)
+      // Broadcast frames stay UNNAMED: the page's onmessage is the one live
+      // refetch driver; named frames are reserved for control events (asks,
+      // approvals, session-switched).
+      clients.forEach(client => client.write(`data: ${JSON.stringify(event)}\n\n`))
     }),
   )
 

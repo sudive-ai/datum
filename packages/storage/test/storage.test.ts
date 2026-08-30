@@ -199,3 +199,37 @@ test('postgres engine: connection failure surfaces as a loud append error', asyn
   )
   await storage.close().catch(() => undefined)
 })
+
+test('crash repair: a dangling turn/start is closed as aborted at restore', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'datum-repair-'))
+  try {
+    const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
+    const ctx = new Context()
+    const session = new SessionLog({ sessionId: SESSION, context: ctx, clock: () => 0 })
+    const dispose = mountSessionPersistence({ context: ctx, session, storage })
+    session.append('user/message', {
+      sessionId: SESSION,
+      messageId: brand<'MessageId'>('m-1'),
+      content: [{ kind: 'text', text: 'hello' }],
+      source: { kind: 'human', surface: 'test' },
+    })
+    session.append('turn/start', { sessionId: SESSION, turnId: brand<'TurnId'>('t-1'), trigger: brand<'MessageId'>('m-1') })
+    await new Promise(resolveTimeout => setTimeout(resolveTimeout, 50))
+    await dispose()
+    await storage.close() // the "crash": no turn/end was ever written
+
+    // Restore: the dangling turn is repaired with an aborted terminal fact.
+    const reopened = createSqliteStorage({ path: join(dir, 'datum.db') })
+    const restored = await openPersistentSessionLog({ context: ctx, storage: reopened })
+    const types = restored.session.entries.map(entry => entry.type)
+    assert.deepEqual(types, ['user/message', 'turn/start', 'turn/end'])
+    const end = restored.session.entries.at(-1)!
+    assert.deepEqual(end.payload.reason, { kind: 'aborted' })
+    // And the repair fact itself persisted.
+    await new Promise(resolveTimeout => setTimeout(resolveTimeout, 50))
+    assert.equal((await reopened.load(SESSION)).length, 3)
+    await reopened.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

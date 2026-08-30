@@ -116,3 +116,35 @@ test('ask disabled: the tool is not offered', async () => {
     await handle.close()
   }
 })
+
+test('live broadcast frames are unnamed so the page refetches history on events', async () => {
+  const handle = await startWorkbench(resolveWorkbenchConfig({
+    port: 0,
+    agent: { name: 'frame-agent', systemPrompt: '', model: 'mock-model', maxTokens: 64 },
+    llm: { provider: 'mock', apiKeyEnv: 'UNUSED_KEY' },
+    storage: { engine: 'memory', path: 'unused.db', connectionStringEnv: 'UNUSED_PG' },
+  }))
+  try {
+    const response = await fetch(`http://127.0.0.1:${handle.port}/events`)
+    const reader = response.body!.getReader()
+    await fetch(`http://127.0.0.1:${handle.port}/api/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'frame check' }),
+    })
+    const deadline = Date.now() + 5000
+    let received = ''
+    let sawUnnamed = false
+    while (Date.now() < deadline && !sawUnnamed) {
+      const { value, done } = await reader.read()
+      if (done) break
+      received += new TextDecoder().decode(value)
+      // An unnamed data frame (no preceding event: line) drives onmessage.
+      sawUnnamed = /(^|\n)data: \{"seq"/.test(received)
+    }
+    assert.ok(sawUnnamed, 'broadcast frames must be unnamed data frames')
+    await reader.cancel().catch(() => undefined)
+  } finally {
+    await handle.close()
+  }
+})
