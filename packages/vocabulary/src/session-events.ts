@@ -38,6 +38,7 @@ export const KNOWN_SESSION_EVENT_TYPES = [
   'session/end-seed',
   'approval/requested',
   'approval/decided',
+  'context/compacted',
 ] as const satisfies readonly (keyof SessionEventMap)[]
 
 /**
@@ -146,6 +147,16 @@ export interface SessionEventMap {
     readonly decision: ApprovalDecision
     /** Who decided (approver identity: 'ui', 'policy-plugin', …). */
     readonly approver: string
+  }
+  /** Entries up to `upToSeq` were folded into `summary`; derivation keeps `keptFromSeq` onward. */
+  'context/compacted': {
+    readonly sessionId: SessionId
+    /** Everything at or before this seq is folded into the summary. */
+    readonly upToSeq: EntrySeq
+    /** Derivation starts from the first entry after this seq. */
+    readonly keptFromSeq: EntrySeq
+    /** The folded summary — the model-visible replacement for what was compacted. */
+    readonly summary: string
   }
 }
 

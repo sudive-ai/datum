@@ -45,6 +45,7 @@ function lastTyped<T extends SessionEvent['type']>(log: SessionLog, type: T): Ex
 function rig(options: {
   handler?: (request: ChatRequest) => Promise<ChatResponse>
   script?: ChatResponse[]
+  spec?: { compaction?: { maxEntries: number; keepRecent: number } }
 } = {}): Rig {
   const ctx = new Context()
   const log = new SessionLog({ sessionId: SESSION, context: ctx, clock: () => 0 })
@@ -72,6 +73,7 @@ function rig(options: {
       maxTokens: 128,
       options: { temperature: 0 },
       surface: 'test',
+      ...options.spec,
     },
   })
   return { ctx, loop, log }
@@ -273,6 +275,55 @@ test('non-streaming adapter: the response still lands as one chunk with a fallba
   })
   const assembled = log.entries.find(entry => entry.type === 'assistant/message')!
   assert.deepEqual(assembled.payload.chunkSeqs, [0])
+})
+
+test('compaction: an outgrown log folds into a logged summary that the next request carries', async () => {
+  const { loop, log } = rig({
+    script: [
+      { finishReason: { kind: 'stop' }, content: [{ kind: 'text', text: 'SUMMARY: user asked twice' }], usage: null },
+      textResponse('after compaction'),
+    ],
+    spec: { compaction: { maxEntries: 8, keepRecent: 3 } },
+  })
+  // Simulate a long history: a compacted prior turn plus filler facts.
+  log.append('user/message', {
+    sessionId: SESSION,
+    messageId: brand<'MessageId'>('m-old'),
+    content: [{ kind: 'text', text: 'old question' }],
+    source: { kind: 'human', surface: 'test' },
+  })
+  for (let index = 0; index < 8; index++) {
+    log.append('step/start', { sessionId: SESSION, turnId: brand<'TurnId'>('t-old'), stepId: brand<'StepId'>(`s-old-${index}`) })
+  }
+  assert.ok(log.entries.length > 8)
+
+  const message = loop.submit('new question')
+  await loop.runTurn(message)
+
+  const compacted = log.entries.filter(entry => entry.type === 'context/compacted')
+  assert.equal(compacted.length, 1)
+  // Everything except the last 3 entries (new user message + the new turn's
+  // facts... at compact time: old 9 + submitted 1 - keep 3) was folded.
+  const fact = compacted[0]!
+  assert.equal(fact.payload.upToSeq + 1, fact.payload.keptFromSeq)
+  assert.match(fact.payload.summary, /SUMMARY/)
+
+  // The next request's model-visible history starts from the summary.
+  const context = log.entries.filter(entry => entry.type === 'request/context').at(-1)
+  assert.ok(context)
+  const messages = context.payload.context['messages'] as Array<{ content: Array<{ text: string }> }>
+  assert.match(String(messages[0]!.content[0]!.text), /earlier conversation, summarized/)
+  assert.match(String(messages[0]!.content[0]!.text), /SUMMARY: user asked twice/)
+})
+
+test('compaction disabled (no policy): the log grows uncompacted', async () => {
+  const { loop, log } = rig({ script: [textResponse('ok')] })
+  for (let index = 0; index < 20; index++) {
+    log.append('step/start', { sessionId: SESSION, turnId: brand<'TurnId'>('t-x'), stepId: brand<'StepId'>(`s-${index}`) })
+  }
+  const message = loop.submit('just answer')
+  await loop.runTurn(message)
+  assert.equal(log.entries.some(entry => entry.type === 'context/compacted'), false)
 })
 
 test('factory seam: setLoopFactory swaps the whole harness, reversibly', () => {

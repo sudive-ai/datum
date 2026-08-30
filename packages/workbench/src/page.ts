@@ -36,7 +36,11 @@ export const workbenchPage = `<!doctype html>
 </style>
 </head>
 <body>
-<header><h1>Datum Workbench</h1><span>every fact has a time and a place</span></header>
+<header><h1>Datum Workbench</h1><span>every fact has a time and a place</span>
+  <span style="margin-left:auto"></span>
+  <select id="sessions" style="padding:6px 8px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:inherit;font:inherit"></select>
+  <button id="new-session" style="padding:6px 12px">+ 新会话</button>
+</header>
 <div id="chat"></div>
 <form id="composer">
   <input id="text" placeholder="Say something to your agent…" autocomplete="off">
@@ -86,9 +90,36 @@ export const workbenchPage = `<!doctype html>
   cancel.addEventListener('click', () => post('/api/cancel', {}))
 
   render(await (await fetch('/api/history')).json())
-  new EventSource('/events').onmessage = () => {
+
+  async function renderSessions() {
+    const data = await (await fetch('/api/sessions')).json()
+    const select = document.getElementById('sessions')
+    select.innerHTML = ''
+    for (const item of data.sessions) {
+      const option = document.createElement('option')
+      option.value = item.sessionId
+      option.textContent = item.sessionId.slice(0, 14) + ' · ' + new Date(item.lastTime).toLocaleString()
+      if (item.sessionId === data.active) option.selected = true
+      select.appendChild(option)
+    }
+  }
+  renderSessions()
+  document.getElementById('sessions').addEventListener('change', event => {
+    fetch('/api/sessions/' + event.target.value + '/activate', { method: 'POST' })
+  })
+  document.getElementById('new-session').addEventListener('click', () => {
+    fetch('/api/sessions', { method: 'POST' })
+  })
+
+  const stream = new EventSource('/events')
+  stream.onmessage = () => {
     fetch('/api/history').then(response => response.json()).then(render)
   }
+  // Switching or creating sessions pushes a 'session' frame: reload the view.
+  stream.addEventListener('session', () => {
+    renderSessions()
+    fetch('/api/history').then(response => response.json()).then(render)
+  })
 
   // Governance you can see: guarded tools open an approval card.
   const approvals = document.createElement('div')

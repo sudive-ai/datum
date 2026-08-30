@@ -70,7 +70,7 @@ test('restore-or-create: a fresh session persists from its first fact on', async
   try {
     const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
     const ctx = new Context()
-    const session = await openPersistentSessionLog({ context: ctx, storage })
+    const { session } = await openPersistentSessionLog({ context: ctx, storage })
     session.append('user/message', {
       sessionId: session.sessionId,
       messageId: brand<'MessageId'>('m-1'),
@@ -93,7 +93,7 @@ test('restart recovery: close, reopen the same file, the session rehydrates full
     { // first process lifetime
       const storage = createSqliteStorage({ path: dbPath })
       const ctx = new Context()
-      const session = await openPersistentSessionLog({ context: ctx, storage })
+      const { session } = await openPersistentSessionLog({ context: ctx, storage })
       originalId = session.sessionId
       session.append('user/message', {
         sessionId: session.sessionId,
@@ -115,7 +115,7 @@ test('restart recovery: close, reopen the same file, the session rehydrates full
     { // second process lifetime: same file, same facts, seqs continue gap-free
       const storage = createSqliteStorage({ path: dbPath })
       const ctx = new Context()
-      const session = await openPersistentSessionLog({ context: ctx, storage })
+      const { session } = await openPersistentSessionLog({ context: ctx, storage })
       assert.equal(session.sessionId, originalId)
       assert.deepEqual(session.entries.map((event: SessionEvent) => event.type), ['user/message', 'assistant/message'])
       // The next append continues the restored log without collision.
@@ -126,6 +126,48 @@ test('restart recovery: close, reopen the same file, the session rehydrates full
       assert.equal(reloaded[2]!.seq, 2)
       await storage.close()
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('memory store (sqlite): put upserts by key, list is recency-ordered, remove deletes', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'datum-mem-'))
+  try {
+    const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
+    const first = await storage.memories.put('user-language', '中文')
+    await storage.memories.put('project', 'datum')
+    const updated = await storage.memories.put('user-language', '中文 / English')
+    assert.equal(updated.id, first.id, 'upsert keeps the id')
+    assert.equal(updated.createdAt, first.createdAt)
+    const list = await storage.memories.list()
+    assert.deepEqual(list.map(entry => [entry.key, entry.content]), [
+      ['user-language', '中文 / English'],
+      ['project', 'datum'],
+    ])
+    assert.equal(await storage.memories.remove(first.id), true)
+    assert.equal(await storage.memories.remove(first.id), false)
+    assert.deepEqual((await storage.memories.list()).map(entry => entry.key), ['project'])
+    await storage.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('deleteSession removes the log and the registry row', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'datum-del-'))
+  try {
+    const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
+    const ctx = new Context()
+    const session = new SessionLog({ sessionId: SESSION, context: ctx, clock: () => 0 })
+    const dispose = mountSessionPersistence({ context: ctx, session, storage })
+    session.append('turn/start', { sessionId: SESSION, turnId: brand<'TurnId'>('t-1'), trigger: brand<'MessageId'>('m-1') })
+    await new Promise(resolveTimeout => setTimeout(resolveTimeout, 50))
+    await dispose()
+    await storage.deleteSession(SESSION)
+    assert.deepEqual(await storage.load(SESSION), [])
+    assert.deepEqual(await storage.listSessions(), [])
+    await storage.close()
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

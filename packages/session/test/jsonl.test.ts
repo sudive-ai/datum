@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { brand, SESSION_FORMAT_VERSION, SessionFormatUnsupportedError } from '@sudive-ai/datum-vocabulary'
-import { parseSessionLog, serializeSessionLog, SessionFormatError, SessionLog } from '../src/index.ts'
+import { brand, brandNumber, SESSION_FORMAT_VERSION, SessionFormatUnsupportedError } from '@sudive-ai/datum-vocabulary'
+import { deriveMessages, parseSessionLog, serializeSessionLog, SessionFormatError, SessionLog } from '../src/index.ts'
 
 const SESSION = brand<'SessionId'>('sess-test')
 
@@ -85,4 +85,25 @@ test('seq must count gap-free from zero across the whole log', () => {
     assert.equal(error.line, 2)
     return true
   })
+})
+
+test('deriveMessages folds a compacted prefix into its summary and resumes after it', () => {
+  const log = sampleLog()
+  log.append('context/compacted', {
+    sessionId: SESSION,
+    upToSeq: brandNumber<'EntrySeq'>(1),
+    keptFromSeq: brandNumber<'EntrySeq'>(2),
+    summary: 'the user said hello and was answered',
+  })
+  log.append('user/message', {
+    sessionId: SESSION,
+    messageId: brand<'MessageId'>('m-3'),
+    content: [{ kind: 'text', text: 'and more' }],
+    source: { kind: 'human', surface: 'test' },
+  })
+  const messages = deriveMessages(log.entries)
+  assert.deepEqual(messages.map(message => [message.role, (message.content[0]! as { text: string }).text]), [
+    ['user', '[earlier conversation, summarized] the user said hello and was answered'],
+    ['user', 'and more'],
+  ])
 })

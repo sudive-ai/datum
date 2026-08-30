@@ -30,6 +30,18 @@ export interface WorkbenchConfig {
   }
   /** User plugin module paths, resolved against the process cwd. */
   readonly plugins: readonly string[]
+  /** Long-term memory composition (remember/recall tools + prompt injection). */
+  readonly memory: {
+    readonly enabled: boolean
+  }
+  /** Long-conversation compaction (fold old entries into a logged summary). */
+  readonly compaction: {
+    readonly enabled: boolean
+    /** Compact once the log exceeds this many entries. */
+    readonly maxEntries: number
+    /** The most recent this-many entries stay verbatim. */
+    readonly keepRecent: number
+  }
   /** The approval surface binding (governance you can see). */
   readonly approval: {
     /** `'closed'` mounts no approver (guarded tools refuse); `'interactive'` asks the UI. */
@@ -51,6 +63,22 @@ export const workbenchConfigSchema = Schema.intersect([
   Schema.object({
     port: Schema.natural().default(8642).description('HTTP port for the local workbench'),
     plugins: Schema.array(Schema.string()).default([]).description('user plugin module paths'),
+  }),
+  Schema.object({
+    memory: Schema.object({
+      enabled: Schema.boolean().default(true),
+    }).default({ enabled: true } as never),
+  }),
+  Schema.object({
+    compaction: Schema.object({
+      enabled: Schema.boolean().default(true),
+      maxEntries: Schema.natural().default(200),
+      keepRecent: Schema.natural().default(40),
+    }).default({
+      enabled: true,
+      maxEntries: 200,
+      keepRecent: 40,
+    } as never),
   }),
   Schema.object({
     approval: Schema.object({

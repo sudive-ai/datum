@@ -54,6 +54,8 @@ Acceptance gates:
 - **Engine conformance**: both engines pass the same suite — write, fail-closed load, idempotent replay, session registry, unknown-session empty set.
 - **Restart recovery**: a workbench closed and reopened on the same database restores the session fully, and the UI's first frame comes from replay (live = replay from boot).
 
+Landed on top of the seam: multi-session workbenches (register/activate/delete over the API), the memory composition (`remember`/`recall` tools + pre-step digest injection, verified cross-session against a real model), and long-conversation compaction (`context/compacted` folds old entries into a logged summary before the next turn).
+
 Deliverable: JSONL persistence, UI projection layer (pure presenters), approval / ask-user / commands chokepoints, per-agent scopes, permission presets.
 
 Acceptance gates:

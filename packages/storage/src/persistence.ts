@@ -1,7 +1,7 @@
 import type { Context } from '@sudive-ai/cordis'
 import type { SessionEvent } from '@sudive-ai/datum-vocabulary'
 import { SessionLog } from '@sudive-ai/datum-session'
-import type { StorageAdapter } from './seam.ts'
+import type { MemoryEntry, MemoryStore, StorageAdapter } from './seam.ts'
 
 /**
  * Wire one session log to one storage engine: every appended entry is
@@ -42,6 +42,33 @@ export function mountSessionPersistence(options: {
 }
 
 /**
+ * An ephemeral memory store for engine-less setups — same contract, process
+ * lifetime only.
+ *
+ * @returns a memory store held in a Map.
+ */
+export function createEphemeralMemoryStore(): MemoryStore {
+  const entries = new Map<string, MemoryEntry>()
+  return {
+    put: async (key, content) => {
+      const now = Date.now()
+      const existing = [...entries.values()].find(entry => entry.key === key)
+      const entry: MemoryEntry = {
+        id: existing?.id ?? `mem-${Math.random().toString(36).slice(2, 10)}`,
+        key,
+        content,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      }
+      entries.set(entry.id, entry)
+      return entry
+    },
+    list: async () => [...entries.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+    remove: async id => entries.delete(id),
+  }
+}
+
+/**
  * Restore-or-create one session log from a storage engine.
  *
  * Restores the most recently active session (or the one named) by loading
@@ -49,13 +76,15 @@ export function mountSessionPersistence(options: {
  * yet, a fresh log begins and persists from its first fact on.
  *
  * @param options — the context, the engine, and optionally a session id.
- * @returns the rehydrated log, persistence already mounted.
+ * @returns the rehydrated log with persistence mounted, plus the persistence
+ *   disposer (drains in-flight writes and unsubscribes) — call it before
+ *   closing the engine or when switching the active session.
  */
 export async function openPersistentSessionLog(options: {
   context: Context
   storage: StorageAdapter
-  sessionId?: import('@sudive-ai/datum-vocabulary').SessionId
-}): Promise<SessionLog> {
+  sessionId?: import('@sudive-ai/datum-vocabulary').SessionId | undefined
+}): Promise<{ session: SessionLog; disposePersistence: () => Promise<void> }> {
   const { context, storage } = options
   const sessions = await storage.listSessions()
   const stored = options.sessionId ?? sessions[0]?.sessionId
@@ -63,6 +92,6 @@ export async function openPersistentSessionLog(options: {
   const session = stored !== undefined
     ? new SessionLog({ context, sessionId: stored, entries })
     : new SessionLog({ context, entries })
-  mountSessionPersistence({ context, session, storage })
-  return session
+  const disposePersistence = mountSessionPersistence({ context, session, storage })
+  return { session, disposePersistence }
 }

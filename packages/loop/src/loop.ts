@@ -3,6 +3,7 @@ import type {
   ApprovalId,
   ChatMessage,
   ContentBlock,
+  EntrySeq,
   FinishReason,
   JsonRecord,
   JsonValue,
@@ -14,6 +15,7 @@ import type {
   TurnId,
 } from '@sudive-ai/datum-vocabulary'
 import { deriveMessages, newMessageId, SessionLog } from '@sudive-ai/datum-session'
+import { brandNumber } from '@sudive-ai/datum-vocabulary'
 import {
   ApprovalDeniedError,
   ApprovalUnavailableError,
@@ -116,6 +118,7 @@ export class AgentLoop {
     this._controller = controller
     const turnId = newTurnId()
     const sessionId = this.session.sessionId
+    await this._maybeCompact(controller.signal)
     this.session.append('turn/start', { sessionId, turnId, trigger: messageId })
     this._status('thinking', `turn ${turnId} started`)
     let ended = false
@@ -145,6 +148,44 @@ export class AgentLoop {
    */
   cancel(): void {
     this._controller?.abort()
+  }
+
+  /**
+   * Compact the log when it outgrew the policy: the oldest facts are
+   * summarized into a logged `context/compacted` fact. The summarizer's input
+   * is a pure projection of this very log (reconstructable), its output is
+   * the logged summary — model-visible remains exactly logged. A failed
+   * summarization is named and the turn proceeds uncompacted.
+   */
+  private async _maybeCompact(signal: AbortSignal): Promise<void> {
+    const policy = this._spec.compaction
+    if (!policy) return
+    if (this.session.entries.length <= policy.maxEntries) return
+    const keep = Math.max(1, policy.keepRecent)
+    const cutoff = this.session.entries.length - keep
+    if (cutoff <= 0) return
+    try {
+      const upTo = this.session.entries[cutoff - 1]!
+      const oldMessages = deriveMessages(this.session.entries.slice(0, cutoff))
+      const response = await this._llm.chat({
+        model: this._spec.model,
+        maxTokens: this._spec.maxTokens,
+        options: this._spec.options,
+        systemPrompt: 'Summarize the conversation so far for a colleague who must continue it seamlessly. Preserve key facts, decisions, user preferences, and open tasks. Reply with the summary only.',
+        messages: oldMessages,
+        tools: [],
+        signal,
+      })
+      const summary = response.content.filter(block => block.kind === 'text').map(block => block.text).join('')
+      this.session.append('context/compacted', {
+        sessionId: this.session.sessionId,
+        upToSeq: upTo.seq,
+        keptFromSeq: brandNumber<'EntrySeq'>(upTo.seq + 1),
+        summary,
+      })
+    } catch (error) {
+      this._context.logger.error(`compaction failed; continuing uncompacted: ${String(error)}`)
+    }
   }
 
   /** Drive steps until the model stops asking for tools or the turn ends early. */

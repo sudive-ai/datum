@@ -1,7 +1,7 @@
 import { DatabaseSync, type DatabaseSync as Database } from 'node:sqlite'
 import type { SessionEvent, SessionId } from '@sudive-ai/datum-vocabulary'
 import { validateSessionEnvelope } from '@sudive-ai/datum-session'
-import type { SessionSummary, StorageAdapter } from './seam.ts'
+import type { MemoryEntry, MemoryStore, SessionSummary, StorageAdapter } from './seam.ts'
 
 /** Configuration for {@link createSqliteStorage}; every field required. */
 export interface SqliteStorageConfig {
@@ -40,7 +40,36 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
       created_at integer not null,
       agent      text not null default ''
     );
+    create table if not exists datum_memories (
+      id         text primary key,
+      key        text not null unique,
+      content    text not null,
+      created_at integer not null,
+      updated_at integer not null
+    );
   `)
+
+  const memories: MemoryStore = {
+    async put(key: string, content: string): Promise<MemoryEntry> {
+      const now = Date.now()
+      const existing = db.prepare('select id, created_at from datum_memories where key = ?').get(key) as { id: string; created_at: number } | undefined
+      const id = existing?.id ?? `mem-${Math.random().toString(36).slice(2, 10)}`
+      db.prepare(`
+        insert into datum_memories (id, key, content, created_at, updated_at) values (?, ?, ?, ?, ?)
+        on conflict(key) do update set content = excluded.content, updated_at = excluded.updated_at
+      `).run(id, key, content, existing?.created_at ?? now, now)
+      return { id, key, content, createdAt: existing?.created_at ?? now, updatedAt: now }
+    },
+    list: async () => (db.prepare('select id, key, content, created_at, updated_at from datum_memories order by updated_at desc').all() as Array<Record<string, unknown>>)
+      .map(row => ({
+        id: String(row['id']),
+        key: String(row['key']),
+        content: String(row['content']),
+        createdAt: Number(row['created_at']),
+        updatedAt: Number(row['updated_at']),
+      })),
+    remove: async (id: string) => (db.prepare('delete from datum_memories where id = ?').run(id).changes as number) > 0,
+  }
 
   return {
     name: 'sqlite',
@@ -60,12 +89,13 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
 
     async listSessions(): Promise<readonly SessionSummary[]> {
       const rows = db.prepare(`
-        select session_id,
-               min(time) as first_time,
-               max(time) as last_time,
-               count(*)  as entries
-        from datum_session_events
-        group by session_id
+        select s.session_id as session_id,
+               coalesce(min(e.time), s.created_at) as first_time,
+               coalesce(max(e.time), s.created_at) as last_time,
+               count(e.seq) as entries
+        from datum_sessions s
+        left join datum_session_events e on e.session_id = s.session_id
+        group by s.session_id
         order by last_time desc
       `).all() as Array<{ session_id: string; first_time: number; last_time: number; entries: number }>
       return rows.map(row => ({
@@ -75,6 +105,18 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
         entries: row.entries,
       }))
     },
+
+    registerSession: async (sessionId, agent) => {
+      db.prepare('insert or ignore into datum_sessions (session_id, created_at, agent) values (?, ?, ?)')
+        .run(sessionId, Date.now(), agent)
+    },
+
+    async deleteSession(sessionId: SessionId): Promise<void> {
+      db.prepare('delete from datum_session_events where session_id = ?').run(sessionId)
+      db.prepare('delete from datum_sessions where session_id = ?').run(sessionId)
+    },
+
+    memories,
 
     close: async () => db.close(),
   }

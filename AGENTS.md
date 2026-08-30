@@ -18,7 +18,8 @@ packages/        @sudive-ai/datum-* packages land here in ROADMAP order
   loop/          M2 default harness: turn/step machine, waterfalls, cancellation
   workbench/     M4 local web workbench: HTTP+SSE, config resolution, user plugins
   storage/       storage seam: SQLite (default local, node:sqlite) + PostgreSQL (postgres.js);
-                 reads go through the session package's fail-closed envelope validation
+                 sessions, session events, and long-term memory; reads go through
+                 the session package's fail-closed envelope validation
 examples/        authoring examples (hello-agent) — the model for domain workbenches
 docs/            roadmap and design notes
 ```

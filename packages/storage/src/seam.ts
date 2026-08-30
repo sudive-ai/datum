@@ -1,6 +1,37 @@
 import type { SessionEvent } from '@sudive-ai/datum-vocabulary'
 import type { SessionId } from '@sudive-ai/datum-vocabulary'
 
+/** One long-term memory entry — authored content, curatable by the agent. */
+export interface MemoryEntry {
+  readonly id: string
+  /** Stable slug the model addresses the memory by (e.g. `user-language`). */
+  readonly key: string
+  readonly content: string
+  readonly createdAt: number
+  readonly updatedAt: number
+}
+
+/** The memory store's Definition: upsert by key, list, remove. */
+export interface MemoryStore {
+  /**
+   * Create or overwrite the entry addressed by `key`.
+   *
+   * @param key — the memory's stable slug.
+   * @param content — the memory content.
+   * @returns the stored entry.
+   */
+  put(key: string, content: string): Promise<MemoryEntry>
+  /** Every entry, most recently updated first. */
+  list(): Promise<readonly MemoryEntry[]>
+  /**
+   * Remove one entry.
+   *
+   * @param id — the entry id.
+   * @returns `true` when an entry was removed.
+   */
+  remove(id: string): Promise<boolean>
+}
+
 /** One stored session's summary, for the workbench session list. */
 export interface SessionSummary {
   readonly sessionId: SessionId
@@ -42,6 +73,22 @@ export interface StorageAdapter {
   load(sessionId: SessionId): Promise<readonly SessionEvent[]>
   /** Summaries of every stored session, most recently active first. */
   listSessions(): Promise<readonly SessionSummary[]>
+  /**
+   * Register a freshly created session so it lists before its first fact
+   * lands.
+   *
+   * @param sessionId — the new session's identity.
+   * @param agent — the agent name it runs.
+   */
+  registerSession(sessionId: SessionId, agent: string): Promise<void>
+  /**
+   * Delete one session and all its entries.
+   *
+   * @param sessionId — the session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
+  /** The engine's long-term memory store. */
+  readonly memories: MemoryStore
   /** Close the engine's connections; idempotent. */
   close(): Promise<void>
 }

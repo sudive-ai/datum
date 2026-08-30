@@ -1,19 +1,21 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Context } from '@sudive-ai/cordis'
-import type { SessionEvent } from '@sudive-ai/datum-vocabulary'
+import type { SessionEvent, SessionId } from '@sudive-ai/datum-vocabulary'
 import { SessionLog } from '@sudive-ai/datum-session'
-import { LlmService, MockAdapter, ToolService, createOpenAICompatibleAdapter } from '@sudive-ai/datum-tools'
+import { ApprovalDeniedError, LlmService, MockAdapter, ToolService, createOpenAICompatibleAdapter } from '@sudive-ai/datum-tools'
 import type { LlmAdapter } from '@sudive-ai/datum-tools'
 import { AgentLoop, createAgentLoop } from '@sudive-ai/datum-loop'
 import {
+  createEphemeralMemoryStore,
   createPostgresStorage,
   createSqliteStorage,
+  mountSessionPersistence,
   openPersistentSessionLog,
+  type MemoryStore,
   type StorageAdapter,
 } from '@sudive-ai/datum-storage'
-import { ApprovalDeniedError } from '@sudive-ai/datum-tools'
 import type { WorkbenchConfig } from './config.ts'
 import { createChatPresenter, type ChatViewState } from './presenter.ts'
 import { workbenchPage } from './page.ts'
@@ -27,24 +29,27 @@ export interface WorkbenchHandle {
   readonly port: number
   /** The kernel context hosting every mounted service and plugin. */
   readonly ctx: Context
-  /** The session log — the single source of truth of this workbench. */
-  readonly session: SessionLog
-  /** The loop driving the agent. */
-  readonly loop: AgentLoop
   /** The storage engine behind this workbench, when persistence is on. */
   readonly storage: StorageAdapter | undefined
-  /** Stop the server, close SSE streams, dispose registrations, close storage. */
+  /** The active session (switching replaces it — read afresh). */
+  readonly session: SessionLog
+  /** The loop driving the active agent. */
+  readonly loop: AgentLoop
+  /** Activate a stored session (or brand a fresh one when omitted). */
+  activateSession(sessionId?: SessionId): Promise<SessionId>
+  /** Stop the server, close SSE streams, drain persistence, close storage. */
   close(): Promise<void>
 }
 
 /**
  * Start a local web workbench.
  *
- * Mounts the LLM seam, the tool registry, one session log, and the default
- * harness on a fresh kernel context, applies user plugins (plain cordis
- * plugins, resolved against the process cwd), then serves the chat UI over
- * HTTP with an SSE event stream. With no approver mounted, approval-flagged
- * tools refuse (fail closed) — mounting one is always an explicit act.
+ * Mounts the LLM seam, the tool registry, and the default harness on a fresh
+ * kernel context; sessions persist through the configured storage engine and
+ * can be listed, created, switched, and deleted over the API; the memory
+ * composition gives the agent long-term recall via `remember`/`recall` tools
+ * plus a memory digest injected at the pre-step waterfall; interactive
+ * approval is opt-in (default closed). Misconfiguration fails here, loudly.
  *
  * @param config — a resolved {@link WorkbenchConfig}.
  * @returns the running handle.
@@ -55,65 +60,103 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   llm.use(createAdapter(config))
   const tools = new ToolService(ctx, 'tools')
   const storage = createStorage(config)
-  // Restore-or-create: a stored session rehydrates through the engine's
-  // fail-closed read; a fresh one persists from its first fact on. 'memory'
-  // keeps the old ephemeral behavior (tests, throwaway demos).
-  const session = storage
-    ? await openPersistentSessionLog({ context: ctx, storage })
-    : new SessionLog({ context: ctx })
 
-  const presenter = createChatPresenter()
+  // --- mutable active session (multi-session) -------------------------------
+  let persistenceDisposer: (() => Promise<void>) | undefined
+  let active: { session: SessionLog; loop: AgentLoop; presenter: ReturnType<typeof createChatPresenter> }
+
   const clients = new Set<ServerResponse>()
-  // Interactive approvals: pending cases wait on a promise the UI resolves.
-  interface ApprovalCase {
-    readonly id: string
-    readonly tool: string
-    readonly input: unknown
-    resolve: () => void
-    reject: (error: ApprovalDeniedError) => void
+  const writeFrame = (event: string, data: unknown): void => {
+    for (const client of clients) client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   }
-  const pendingApprovals = new Map<string, ApprovalCase>()
-  let approvalCounter = 0
+
+  // --- memory composition: tools + pre-step injection -----------------------
+  const memoryStore: MemoryStore = storage ? storage.memories : createEphemeralMemoryStore()
+  let memoryDigest = ''
+  const refreshMemoryDigest = async (): Promise<void> => {
+    if (!config.memory.enabled) return
+    const entries = await memoryStore.list()
+    memoryDigest = entries.length === 0
+      ? ''
+      : entries.map(entry => `- ${entry.key}: ${entry.content}`).join('\n')
+  }
+  if (config.memory.enabled) {
+    tools.register({
+      name: 'remember',
+      description: 'Save a long-term memory under a stable short key. Overwrites the previous content of that key.',
+      parameters: {
+        type: 'object',
+        properties: { key: { type: 'string', description: 'short stable slug, e.g. user-language' }, content: { type: 'string' } },
+        required: ['key', 'content'],
+      },
+      execute: async input => {
+        const entry = await memoryStore.put(String(input['key'] ?? ''), String(input['content'] ?? ''))
+        await refreshMemoryDigest()
+        return { saved: entry.key, updatedAt: entry.updatedAt }
+      },
+    })
+    tools.register({
+      name: 'recall',
+      description: 'List long-term memories; an optional query filters by substring in key or content.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'optional filter text' } },
+      },
+      execute: async input => {
+        const query = input['query'] === undefined ? undefined : String(input['query']).toLowerCase()
+        const all = await memoryStore.list()
+        return {
+          memories: all
+            .filter(entry => query === undefined || entry.key.toLowerCase().includes(query) || entry.content.toLowerCase().includes(query))
+            .map(entry => ({ key: entry.key, content: entry.content })),
+        }
+      },
+    })
+    ctx.on('agent/pre-step', (spec, next) => {
+      if (memoryDigest.length > 0) {
+        spec.systemPrompt += `\n\n## Long-term memory\n${memoryDigest}`
+      }
+      return next()
+    })
+    await refreshMemoryDigest()
+  }
+
+  // --- SSE broadcast: only the active session reaches the live stream -------
   const disposers: Array<() => unknown> = []
   disposers.push(
     ctx.on('session/event', (event: SessionEvent) => {
-      presenter.apply(event)
-      const frame = `data: ${JSON.stringify(event)}\n\n`
-      for (const client of clients) client.write(frame)
+      if (event.payload.sessionId !== active.session.sessionId) return
+      active.presenter.apply(event)
+      writeFrame('session', event)
     }),
   )
-  // Historical replay: a restored session starts the view from its stored
-  // facts, so live rendering and replay share one path from the first frame.
-  for (const entry of session.entries) presenter.apply(entry)
 
-  // The approval surface: 'interactive' mounts the UI as the approver —
-  // guarded tools open a case, the browser decides, the loop logs the fact.
-  // 'closed' (the default) mounts nothing: guarded tools refuse outright.
+  // --- interactive approval (opt-in) ----------------------------------------
+  const pendingApprovals = new Map<string, { id: string; tool: string; input: unknown; resolve: () => void; reject: (error: ApprovalDeniedError) => void }>()
+  let approvalCounter = 0
   if (config.approval.mode === 'interactive') {
     tools.setGuard((tool, input) => {
       const id = `appr-${++approvalCounter}`
-      const frame = (event: string, data: unknown): void => {
-        for (const client of clients) client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-      }
       return new Promise<void>((resolveGuard, rejectGuard) => {
         pendingApprovals.set(id, {
           id, tool: tool.name, input,
           resolve: () => {
             pendingApprovals.delete(id)
-            frame('approval-decided', { id, decision: 'granted' })
+            writeFrame('approval-decided', { id, decision: 'granted' })
             resolveGuard()
           },
           reject: (error: ApprovalDeniedError) => {
             pendingApprovals.delete(id)
-            frame('approval-decided', { id, decision: 'denied' })
+            writeFrame('approval-decided', { id, decision: 'denied' })
             rejectGuard(error)
           },
         })
-        frame('approval', { id, tool: tool.name, input })
+        writeFrame('approval', { id, tool: tool.name, input })
       })
     }, 'ui')
   }
 
+  // --- user plugins -----------------------------------------------------------
   for (const pluginPath of config.plugins) {
     const absolute = resolve(process.cwd(), pluginPath)
     const mod = (await import(pathToFileURL(absolute).href)) as { default?: DatumPlugin } & DatumPlugin
@@ -121,21 +164,58 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     ctx.plugin(plugin)
   }
 
-  const loop = createAgentLoop({
-    context: ctx,
-    session,
-    llm,
-    tools,
-    spec: {
-      name: config.agent.name,
-      systemPrompt: config.agent.systemPrompt,
-      model: config.llm.model ?? config.agent.model,
-      maxTokens: config.agent.maxTokens,
-      options: {},
-      surface: 'web',
-    },
-  })
+  // --- activation: restore-or-create one session and bind its loop ------------
+  const spec = {
+    name: config.agent.name,
+    systemPrompt: config.agent.systemPrompt,
+    model: config.llm.model ?? config.agent.model,
+    maxTokens: config.agent.maxTokens,
+    options: {},
+    surface: 'web',
+    compaction: config.compaction.enabled
+      ? { maxEntries: config.compaction.maxEntries, keepRecent: config.compaction.keepRecent }
+      : undefined,
+  }
 
+  function bindSession(session: SessionLog): SessionId {
+    const presenter = createChatPresenter()
+    // Historical replay: the view starts from the stored facts.
+    for (const entry of session.entries) presenter.apply(entry)
+    const loop = createAgentLoop({ context: ctx, session, llm, tools, spec })
+    active = { session, loop, presenter }
+    writeFrame('session', { sessionId: session.sessionId })
+    return session.sessionId
+  }
+
+  /** Restore a stored session (latest when omitted) and bind it. */
+  async function activate(sessionId: SessionId | undefined): Promise<SessionId> {
+    await persistenceDisposer?.()
+    persistenceDisposer = undefined
+    if (storage) {
+      const restored = await openPersistentSessionLog({ context: ctx, storage, sessionId })
+      persistenceDisposer = restored.disposePersistence
+      return bindSession(restored.session)
+    }
+    return bindSession(sessionId ? new SessionLog({ context: ctx, sessionId }) : new SessionLog({ context: ctx }))
+  }
+
+  /**
+   * Brand a genuinely new session — never a restore. With storage attached
+   * it persists from its first fact on.
+   */
+  async function createSession(): Promise<SessionId> {
+    await persistenceDisposer?.()
+    persistenceDisposer = undefined
+    const session = new SessionLog({ context: ctx })
+    if (storage) {
+      await storage.registerSession(session.sessionId, config.agent.name)
+      persistenceDisposer = mountSessionPersistence({ context: ctx, session, storage })
+    }
+    return bindSession(session)
+  }
+  await activate(undefined)
+
+  // --- HTTP ---------------------------------------------------------------------
   const server = createServer((request, response) => {
     void route(request, response).catch(error => {
       response.writeHead(500, { 'content-type': 'application/json' })
@@ -144,7 +224,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   })
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url ?? '/', `http://localhost`)
+    const url = new URL(request.url ?? '/', 'http://localhost')
     if (request.method === 'GET' && url.pathname === '/') {
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       response.end(workbenchPage)
@@ -152,13 +232,74 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }
     if (request.method === 'GET' && url.pathname === '/api/health') {
       response.writeHead(200, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ ok: true, agent: loop.name }))
+      response.end(JSON.stringify({ ok: true, agent: active.loop.name }))
       return
     }
     if (request.method === 'GET' && url.pathname === '/api/history') {
-      const snapshot: ChatViewState = presenter.snapshot()
+      const snapshot: ChatViewState = active.presenter.snapshot()
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify(snapshot))
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/api/sessions') {
+      const stored = storage ? await storage.listSessions() : []
+      const listed = stored.map(item => ({ sessionId: item.sessionId, lastTime: item.lastTime, entries: item.entries }))
+      if (!listed.some(item => item.sessionId === active.session.sessionId)) {
+        listed.unshift({ sessionId: active.session.sessionId, lastTime: Date.now(), entries: active.session.entries.length })
+      }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ active: active.session.sessionId, sessions: listed }))
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/api/sessions') {
+      if (active.loop.running) {
+        response.writeHead(409, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'a turn is already running' }))
+        return
+      }
+      const sessionId = await createSession()
+      response.writeHead(201, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ sessionId }))
+      return
+    }
+    const switchMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/activate$/)
+    if (request.method === 'POST' && switchMatch) {
+      if (active.loop.running) {
+        response.writeHead(409, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'a turn is already running' }))
+        return
+      }
+      const sessionId = decodeURIComponent(switchMatch[1]!) as SessionId
+      if (storage) {
+        const known = (await storage.listSessions()).some(item => item.sessionId === sessionId)
+        if (!known && sessionId !== active.session.sessionId) {
+          response.writeHead(404, { 'content-type': 'application/json' })
+          response.end(JSON.stringify({ error: 'no such session' }))
+          return
+        }
+      }
+      await activate(sessionId)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ sessionId }))
+      return
+    }
+    const deleteMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)$/)
+    if (request.method === 'DELETE' && deleteMatch) {
+      const sessionId = decodeURIComponent(deleteMatch[1]!) as SessionId
+      if (!storage) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'memory-mode sessions cannot be deleted' }))
+        return
+      }
+      if (active.loop.running) {
+        response.writeHead(409, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'a turn is already running' }))
+        return
+      }
+      await storage.deleteSession(sessionId)
+      if (sessionId === active.session.sessionId) await activate(undefined)
+      response.writeHead(204)
+      response.end()
       return
     }
     if (request.method === 'GET' && url.pathname === '/events') {
@@ -179,19 +320,20 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         response.end(JSON.stringify({ error: 'text is required' }))
         return
       }
-      if (loop.running) {
+      if (active.loop.running) {
         response.writeHead(409, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ error: 'a turn is already running' }))
         return
       }
-      const messageId = loop.submit(body.text)
-      void loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
+      await refreshMemoryDigest() // the pre-step waterfall injects the fresh digest
+      const messageId = active.loop.submit(body.text)
+      void active.loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
       response.writeHead(202, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ messageId }))
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/cancel') {
-      loop.cancel()
+      active.loop.cancel()
       response.writeHead(204)
       response.end()
       return
@@ -240,38 +382,27 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   return {
     port,
     ctx,
-    session,
-    loop,
     storage,
+    get session(): SessionLog {
+      return active.session
+    },
+    get loop(): AgentLoop {
+      return active.loop
+    },
+    activateSession: (sessionId?: SessionId) => activate(sessionId),
     close: () =>
       (async () => {
         for (const client of clients) client.end()
         clients.clear()
-        // Drain first: the persistence disposer awaits in-flight writes, so
-        // closing cannot lose the tail of the log.
+        // Drain first: persistence awaits in-flight writes, so closing
+        // cannot lose the tail of the log.
         for (const dispose of disposers) await dispose()
+        await persistenceDisposer?.()
         if (storage) await storage.close()
         await new Promise<void>((resolveClose, rejectClose) => {
           server.close(error => (error ? rejectClose(error) : resolveClose()))
         })
       })(),
-  }
-}
-
-/** Build the configured storage engine; misconfiguration fails here, loudly. */
-function createStorage(config: WorkbenchConfig): StorageAdapter | undefined {
-  switch (config.storage.engine) {
-    case 'memory':
-      return undefined
-    case 'sqlite':
-      return createSqliteStorage({ path: config.storage.path })
-    case 'postgres': {
-      const connectionString = process.env[config.storage.connectionStringEnv]
-      if (!connectionString) {
-        throw new Error(`workbench config: environment variable ${config.storage.connectionStringEnv} is not set (the PostgreSQL connection string comes from the environment, never from config files)`)
-      }
-      return createPostgresStorage({ connectionString })
-    }
   }
 }
 
@@ -304,6 +435,23 @@ function createAdapter(config: WorkbenchConfig): LlmAdapter {
   })
 }
 
+/** Build the configured storage engine; misconfiguration fails here, loudly. */
+function createStorage(config: WorkbenchConfig): StorageAdapter | undefined {
+  switch (config.storage.engine) {
+    case 'memory':
+      return undefined
+    case 'sqlite':
+      return createSqliteStorage({ path: config.storage.path })
+    case 'postgres': {
+      const connectionString = process.env[config.storage.connectionStringEnv]
+      if (!connectionString) {
+        throw new Error(`workbench config: environment variable ${config.storage.connectionStringEnv} is not set (the PostgreSQL connection string comes from the environment, never from config files)`)
+      }
+      return createPostgresStorage({ connectionString })
+    }
+  }
+}
+
 /** Read and parse a JSON request body. */
 function readBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolveBody, rejectBody) => {
@@ -321,5 +469,3 @@ function readBody(request: IncomingMessage): Promise<unknown> {
     request.on('error', rejectBody)
   })
 }
-
-export type { Server }

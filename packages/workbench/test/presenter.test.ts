@@ -55,6 +55,7 @@ function buildEvent(random: () => number, seq: number): SessionEvent {
       case 'session/end-seed': return { sessionId: SESSION, reason: { kind: 'completed' } }
       case 'approval/requested': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), toolCallId: undefined, action: { tool: 'echo', input: {} } }
       case 'approval/decided': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), decision: 'granted', approver: 'ui' }
+      case 'context/compacted': return { sessionId: SESSION, upToSeq: 0 as never, keptFromSeq: seq as never, summary: `s-${seq}` }
     }
   })()
   return { seq: seq, time: 0, type, payload } as unknown as SessionEvent

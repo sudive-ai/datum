@@ -20,4 +20,10 @@ export interface AgentSpec {
   readonly options: JsonRecord
   /** Which surface the agent runs on (cli, web, sdk…), for diagnostics. */
   readonly surface: string
+  /**
+   * Long-conversation compaction policy; omit to disable. When the log
+   * exceeds `maxEntries`, the oldest `entries - keepRecent` facts are folded
+   * into a logged `context/compacted` summary before the next turn starts.
+   */
+  readonly compaction?: { readonly maxEntries: number; readonly keepRecent: number } | undefined
 }

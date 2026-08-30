@@ -1,6 +1,7 @@
 import type { ChatMessage, MessageId, SessionEvent } from '@sudive-ai/datum-vocabulary'
 import { brand } from '@sudive-ai/datum-vocabulary'
 
+
 export type { ChatMessage } from '@sudive-ai/datum-vocabulary'
 
 /**
@@ -9,15 +10,34 @@ export type { ChatMessage } from '@sudive-ai/datum-vocabulary'
  * `user/message` and `assistant/message` entries become chat messages in log
  * order; `assistant/chunk` entries are deliberately not consulted (the
  * assembled message already references its chunks), and lifecycle/tool events
- * contribute nothing to the message history. Deriving never reads state that
- * is not in the log: the projection is recomputable from the entries alone.
+ * contribute nothing to the message history. When the log carries a
+ * `context/compacted` fact, everything before it is replaced by its summary
+ * (surfaced as the first user-side message) and derivation resumes from
+ * `keptFromSeq`. Deriving never reads state that is not in the log: the
+ * projection is recomputable from the entries alone.
  *
  * @param events — the log entries, oldest first.
  * @returns the derived message history.
  */
 export function deriveMessages(events: readonly SessionEvent[]): readonly ChatMessage[] {
   const messages: ChatMessage[] = []
+  let keptFromSeq = 0
+  let summary: string | undefined
   for (const event of events) {
+    if (event.type === 'context/compacted') {
+      summary = event.payload.summary
+      keptFromSeq = event.payload.keptFromSeq
+      messages.length = 0
+      messages.push({
+        messageId: brand<'MessageId'>(`summary-${event.seq}`),
+        role: 'user',
+        content: [{ kind: 'text', text: `[earlier conversation, summarized] ${summary}` }],
+      })
+    }
+  }
+  for (const event of events) {
+    if (event.seq < keptFromSeq) continue
+    if (event.type === 'context/compacted') continue
     if (event.type === 'user/message') {
       messages.push({
         messageId: event.payload.messageId,
@@ -46,3 +66,4 @@ export function deriveMessages(events: readonly SessionEvent[]): readonly ChatMe
 export function newMessageId(): MessageId {
   return brand<'MessageId'>(`msg-${Math.random().toString(36).slice(2, 10)}`)
 }
+

@@ -75,9 +75,13 @@ Point the demo at a real model in `examples/hello-agent/start.ts`
 environment variable, and restart — everything else stays the same.
 
 Facts persist to a local SQLite database (`datum.db`) by default: kill the
-process, start again, and the conversation is still there. For shared
-deployments, `DATUM_STORAGE_ENGINE=postgres DATUM_PG_URL=postgres://… pnpm demo`
-switches the engine — every read path stays fail-closed regardless of engine.
+process, start again, and the conversation is still there. Sessions are
+first-class — create, switch, and delete them from the workbench header — and
+the agent carries long-term memory (`remember`/`recall`) that survives across
+sessions. Long conversations fold themselves into logged summaries
+(`context/compacted`) before hitting context limits. For shared deployments,
+`DATUM_STORAGE_ENGINE=postgres DATUM_PG_URL=postgres://… pnpm demo` switches
+the engine — every read path stays fail-closed regardless of engine.
 
 ## Naming
 
