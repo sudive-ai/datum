@@ -89,3 +89,22 @@ test('mock adapter streams its scripted text as deltas', async () => {
   assert.deepEqual(deltas, ['piece one', 'piece two'])
   assert.equal((response.content[0] as { text: string }).text, 'piece one')
 })
+
+test('truncated tool-call arguments (output budget) degrade to a length finish, not a crash', async () => {
+  const adapter = createOpenAICompatibleAdapter(CONFIG, sseResponse([
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x","function":{"name":"search","arguments":"{\\"q\\":\\"da"}}]}}]}',
+    'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+    'data: [DONE]',
+  ]))
+  const response = await adapter.stream(makeRequest(), () => undefined)
+  assert.deepEqual(response.finishReason, { kind: 'length' })
+  assert.ok(!response.content.some(block => block.kind === 'tool_call'), 'the unexecutable call is not emitted')
+  // ...and the same breakage against a normal finish is an explicit error word.
+  const adapter2 = createOpenAICompatibleAdapter(CONFIG, sseResponse([
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x","function":{"name":"search","arguments":"{oops"}}]}}]}',
+    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+    'data: [DONE]',
+  ]))
+  const broken = await adapter2.stream(makeRequest(), () => undefined)
+  assert.deepEqual(broken.finishReason, { kind: 'error', message: 'streamed tool call arguments were not valid JSON' })
+})

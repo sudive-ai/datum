@@ -173,52 +173,77 @@ export const workbenchPage = `<!doctype html>
     return html.replace(/\\0B(\\d+)\\0/g, (m, idx) => blocks[Number(idx)] ?? '')
   }
 
-  // --- render: structured entries; expanded state survives re-renders -------
+  // --- render: incremental; expanded state survives re-renders --------------
+  let busy = null // null = nothing rendered yet — the first render never skips
   const openEntries = new Set()
+  const entryNodes = []
+  const entryKeys = []
+  const mdCache = new Map()
+  const cachedMarkdown = text => {
+    if (!mdCache.has(text)) mdCache.set(text, renderMarkdown(text))
+    return mdCache.get(text)
+  }
+  function buildEntry(entry, index) {
+    if (entry.kind === 'message') {
+      const div = document.createElement('div')
+      div.className = 'msg ' + entry.role
+      if (entry.role === 'assistant') {
+        div.classList.add('md')
+        div.innerHTML = cachedMarkdown(entry.text)
+      } else {
+        div.textContent = entry.text
+      }
+      return div
+    }
+    const id = 'act-' + index
+    const details = document.createElement('details')
+    details.className = 'activity' + (entry.isError ? ' is-error' : '') + (entry.file ? ' file' : '')
+    details.id = id
+    if (openEntries.has(id)) details.open = true
+    details.addEventListener('toggle', () => {
+      if (details.open) openEntries.add(id)
+      else openEntries.delete(id)
+    })
+    const summary = document.createElement('summary')
+    summary.textContent = entry.text
+    details.appendChild(summary)
+    const body = document.createElement('pre')
+    body.textContent = entry.file ? entry.file.content : (entry.detail ?? '')
+    details.appendChild(body)
+    return details
+  }
   function render(state) {
     // Autoscroll only follows the output when the reader is already at the
     // bottom — scrolling up to read history must never be yanked back.
     const nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80
-    chat.innerHTML = ''
-    let index = 0
-    for (const entry of state.entries) {
-      if (entry.kind === 'message') {
-        const div = document.createElement('div')
-        div.className = 'msg ' + entry.role
-        if (entry.role === 'assistant') {
-          div.classList.add('md')
-          div.innerHTML = renderMarkdown(entry.text)
-        } else {
-          div.textContent = entry.text
-        }
-        chat.appendChild(div)
-      } else {
-        const id = 'act-' + index
-        const details = document.createElement('details')
-        details.className = 'activity' + (entry.isError ? ' is-error' : '') + (entry.file ? ' file' : '')
-        details.id = id
-        if (openEntries.has(id)) details.open = true
-        details.addEventListener('toggle', () => {
-          if (details.open) openEntries.add(id)
-          else openEntries.delete(id)
-        })
-        const summary = document.createElement('summary')
-        summary.textContent = entry.text
-        details.appendChild(summary)
-        const body = document.createElement('pre')
-        body.textContent = entry.file ? entry.file.content : (entry.detail ?? '')
-        details.appendChild(body)
-        chat.appendChild(details)
-      }
-      index++
+    // Entry-level diff: untouched leading entries keep their DOM nodes, so
+    // clicks and expansions are never destroyed under the cursor.
+    const keys = state.entries.map(entry => JSON.stringify(entry))
+    let divergence = 0
+    const min = Math.min(keys.length, entryKeys.length)
+    while (divergence < min && keys[divergence] === entryKeys[divergence]) divergence++
+    if (divergence === keys.length && keys.length === entryKeys.length && busy === state.busy) return
+    while (entryNodes.length > divergence) {
+      chat.removeChild(entryNodes.pop())
+      entryKeys.pop()
+    }
+    for (let index = divergence; index < state.entries.length; index++) {
+      const node = buildEntry(state.entries[index], index)
+      entryNodes.push(node)
+      entryKeys.push(keys[index])
+      chat.appendChild(node)
     }
     if (state.busy) {
       const busy = document.createElement('div')
       busy.id = 'busy'
       busy.textContent = '… thinking'
       chat.appendChild(busy)
+    } else {
+      document.getElementById('busy')?.remove()
     }
-    send.disabled = state.busy
+    const previousBusy = busy
+    busy = state.busy
+    if (previousBusy !== state.busy) send.disabled = state.busy
     if (nearBottom) chat.scrollTop = chat.scrollHeight
   }
 

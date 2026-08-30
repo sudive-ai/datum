@@ -22,7 +22,7 @@ const config = resolveWorkbenchConfig({
     name: 'hello-agent',
     systemPrompt: 'You are the user\'s personal agent. Introduce yourself briefly on the first turn.',
     model: process.env.LLM_MODEL ?? 'gpt-4o-mini',
-    maxTokens: 2048,
+    maxTokens: Number(process.env.LLM_MAX_TOKENS ?? 8192),
   },
   llm: {
     // Default 'mock' runs keyless — perfect for a first look. For a real

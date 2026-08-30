@@ -94,17 +94,27 @@ export function createOpenAICompatibleAdapter(
       const content: ContentBlock[] = []
       if (thinking.length > 0) content.push({ kind: 'thinking', text: thinking })
       if (text.length > 0) content.push({ kind: 'text', text })
+      let brokenArguments = false
       for (const key of [...toolCalls.keys()].sort((a, b) => a - b)) {
         const call = toolCalls.get(key)!
         let input: JsonRecord
         try {
           input = JSON.parse(call.arguments || '{}') as JsonRecord
-        } catch (cause) {
-          throw new TypeError('openai-compatible adapter: streamed tool call arguments are not valid JSON', { cause })
+        } catch {
+          // Broken arguments are almost always output-budget truncation
+          // (finish_reason=length mid-arguments). The call cannot execute;
+          // drop it and let the finish reason say what happened.
+          brokenArguments = true
+          continue
         }
         content.push({ kind: 'tool_call', toolCallId: brand<'ToolCallId'>(call.id), name: call.name, input })
       }
-      return { finishReason: decodeFinishReason(finish), content, usage: null, providerFinish: typeof finish === 'string' ? finish : undefined }
+      const finishReason = brokenArguments
+        ? finish === 'length'
+          ? { kind: 'length' } as FinishReason
+          : ({ kind: 'error', message: 'streamed tool call arguments were not valid JSON' } as FinishReason)
+        : decodeFinishReason(finish)
+      return { finishReason, content, usage: null, providerFinish: typeof finish === 'string' ? finish : undefined }
     },
 
     async chat(request: ChatRequest): Promise<ChatResponse> {
