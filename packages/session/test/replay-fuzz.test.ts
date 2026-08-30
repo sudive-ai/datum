@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import type { ApprovalId, SessionEvent, SessionEventType } from '@sudive-ai/datum-vocabulary'
+import type { AskId, ApprovalId, SessionEvent, SessionEventType } from '@sudive-ai/datum-vocabulary'
 import { brand, brandNumber } from '@sudive-ai/datum-vocabulary'
 import { deriveMessages } from '../src/index.ts'
 import { parseSessionLog, serializeSessionLog } from '../src/index.ts'
@@ -71,6 +71,8 @@ function buildPayload(random: () => number, seq: number, type: SessionEventType)
       return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), decision: random() < 0.5 ? 'granted' : 'denied', approver: 'ui' }
     case 'context/compacted':
       return { sessionId: SESSION, upToSeq: brandNumber<'EntrySeq'>(Math.max(0, seq - 1)), keptFromSeq: brandNumber<'EntrySeq'>(seq), summary: `summary-${seq}` }
+    case 'ask/requested':
+      return { sessionId: SESSION, askId: brand<'AskId'>(`ask-${seq}`), question: `q-${seq}`, choices: ['a', 'b'] }
   }
 }
 
