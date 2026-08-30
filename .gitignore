@@ -25,3 +25,7 @@ tmp/
 # Local workbench databases
 datum.db
 *.sqlite
+
+# probe scratch dirs
+.cache-probe-*
+.fiber-probe-*
