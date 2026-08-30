@@ -3,8 +3,12 @@
 One config + one plugin = a workbench for your own domain.
 
 ```sh
-pnpm demo          # starts this example on http://127.0.0.1:8642
+cp .env.example .env   # fill in LLM_* and OPENAI_API_KEY for a real model
+pnpm demo              # starts this example on http://127.0.0.1:8642
 ```
+
+Without a `.env` the demo runs keyless on the mock adapter; with one, the
+environment is loaded automatically.
 
 ## The two files that are *yours*
 

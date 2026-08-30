@@ -70,9 +70,17 @@ pnpm -r --if-present test   # acceptance gates per layer
 pnpm demo                   # hello-agent workbench on http://127.0.0.1:8642 (keyless mock)
 ```
 
-Point the demo at a real model in `examples/hello-agent/start.ts`
-(`llm.provider: 'openai-compatible'` + `baseUrl`), export the API key
-environment variable, and restart — everything else stays the same.
+Environment lives in a `.env` file at the repo root — copy `.env.example`
+and fill in what you need; `pnpm demo` loads it automatically:
+
+```sh
+cp .env.example .env
+# edit .env: LLM_PROVIDER / LLM_BASE_URL / LLM_MODEL / OPENAI_API_KEY
+pnpm demo                   # now talks to your real model
+```
+
+`.env` is gitignored — keys never enter config files or the log. Without a
+`.env`, the demo runs keyless on the mock adapter.
 
 Facts persist to a local SQLite database (`datum.db`) by default: kill the
 process, start again, and the conversation is still there. Sessions are

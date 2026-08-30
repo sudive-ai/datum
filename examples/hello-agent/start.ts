@@ -6,6 +6,10 @@
  *
  *   pnpm demo
  *
+ * Environment lives in a `.env` file next to the repo root (see
+ * `.env.example`): `pnpm demo` loads it automatically via Node's
+ * `--env-file-if-exists`. Keys never enter config files or the log.
+ *
  * Then open the printed URL. Switch to a real model by filling the
  * `openai-compatible` branch and exporting the API key environment variable —
  * keys never live in config files or in the log.
