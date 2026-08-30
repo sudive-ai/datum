@@ -4,9 +4,14 @@
  * The UI has exactly one rendering path: it renders what `/api/history`
  * (replay) and `/events` (live) both produce — the same session events folded
  * by the same rules, so live rendering and historical replay cannot diverge.
+ *
+ * NOTE: this file is one big template literal. Inside the embedded script,
+ * every backtick, `${`, and regex backslash must be escaped for the .ts
+ * layer (`\``, `\${`, `\\[`) — the test suite syntax-checks the emitted
+ * script to keep this honest.
  */
 export const workbenchPage = `<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,13 +20,14 @@ export const workbenchPage = `<!doctype html>
   :root { color-scheme: dark; }
   body { margin: 0; font-family: system-ui, sans-serif; background: #0d1117; color: #e6edf3;
          display: flex; flex-direction: column; height: 100vh; }
-  header { padding: 12px 16px; border-bottom: 1px solid #21262d; display: flex; gap: 12px; align-items: baseline; }
+  header { padding: 12px 16px; border-bottom: 1px solid #21262d; display: flex; gap: 12px; align-items: center; }
   header h1 { font-size: 15px; margin: 0; }
   header span { font-size: 12px; color: #8b949e; }
+  header .spacer { margin-left: auto; }
   #chat { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   .msg { max-width: 72%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; line-height: 1.45; }
-  .user { align-self: flex-end; background: #1f6feb; color: white; }
-  .assistant { align-self: flex-start; background: #161b22; border: 1px solid #30363d; }
+  .msg.user { align-self: flex-end; background: #1f6feb; color: white; }
+  .msg.assistant { align-self: flex-start; background: #161b22; border: 1px solid #30363d; }
   .md p { margin: 0.35em 0; }
   .md p:first-child { margin-top: 0; }
   .md p:last-child { margin-bottom: 0; }
@@ -42,90 +48,90 @@ export const workbenchPage = `<!doctype html>
   .md a { color: #58a6ff; }
   .md hr { border: none; border-top: 1px solid #30363d; margin: 0.6em 0; }
   form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #21262d; }
-  input { flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid #30363d;
+  input { padding: 10px 12px; border-radius: 8px; border: 1px solid #30363d;
           background: #0d1117; color: inherit; font: inherit; }
+  form input { flex: 1; }
   button { padding: 10px 16px; border-radius: 8px; border: 1px solid #30363d;
            background: #21262d; color: inherit; cursor: pointer; font: inherit; }
+  header button { padding: 6px 12px; }
   button:disabled { opacity: 0.5; cursor: default; }
   #busy { font-size: 12px; color: #d29922; align-self: flex-start; }
   details.activity { align-self: flex-start; max-width: 80%; border: 1px solid #21262d;
                      border-radius: 8px; background: #10151c; font-size: 12.5px; }
   details.activity.is-error { border-color: #f85149; }
   details.activity summary { cursor: pointer; padding: 6px 10px; color: #8b949e; user-select: none; list-style: none; }
-  details.activity summary::before { content: '▸ '; }
-  details.activity[open] summary::before { content: '▾ '; }
+  details.activity summary::before { content: '\\25B8 '; }
+  details.activity[open] summary::before { content: '\\25BE '; }
   details.activity pre { margin: 0; padding: 8px 12px; border-top: 1px solid #21262d;
                          white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;
                          color: #c9d1d9; font-size: 12px; }
   details.file summary { color: #58a6ff; }
   details.file pre { background: #0d1117; }
-  .approval-card { margin: 4px 16px; padding: 10px 12px; border: 1px solid #d29922;
-                   border-radius: 8px; background: #2b2205; font-size: 13px; }
+  .approval-card, .ask-card { margin: 4px 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .approval-card { border: 1px solid #d29922; background: #2b2205; }
   .approval-card pre { font-size: 11px; color: #8b949e; margin: 6px 0; }
-  .approval-card button { margin-right: 8px; }
-  .ask-card { margin: 4px 16px; padding: 10px 12px; border: 1px solid #1f6feb;
-              border-radius: 8px; background: #0d1b2e; font-size: 13px; }
+  .approval-card button, .ask-card button { margin-right: 8px; padding: 6px 12px; }
+  .ask-card { border: 1px solid #1f6feb; background: #0d1b2e; }
   .ask-card input { margin: 6px 8px 0 0; padding: 6px 8px; }
 </style>
 </head>
 <body>
 <header><h1>Datum Workbench</h1><span>every fact has a time and a place</span>
-  <span style="margin-left:auto"></span>
+  <span class="spacer"></span>
   <select id="sessions" style="padding:6px 8px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:inherit;font:inherit"></select>
-  <button id="new-session" style="padding:6px 12px">+ 新会话</button>
+  <button id="new-session">+ 新会话</button>
 </header>
 <div id="chat"></div>
 <form id="composer">
-  <input id="text" placeholder="Say something to your agent…" autocomplete="off">
-  <button id="send">Send</button>
-  <button id="cancel" type="button">Cancel</button>
+  <input id="text" placeholder="对你的智能体说点什么…" autocomplete="off">
+  <button id="send">发送</button>
+  <button id="cancel" type="button">取消</button>
 </form>
 <script type="module">
   const chat = document.getElementById('chat')
   const text = document.getElementById('text')
   const send = document.getElementById('send')
-  const cancel = document.getElementById('cancel')
 
-  // Minimal safe markdown renderer: escape first, then transform. No deps.
-  function escapeHtml(text) {
-    return text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+  // --- minimal safe markdown: escape first, then transform ------------------
+  function escapeHtml(value) {
+    return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
   }
   function inline(text) {
     const codes = []
-    let out = text.replace(/\`([^\`]+)\`/g, (m, code) => {
-      return '\0C' + (codes.push('<code>' + code + '</code>') - 1) + '\0'
+    let out = text.replace(/\\\`([^\\\`]+)\\\`/g, (m, code) => {
+      return '\\0C' + (codes.push('<code>' + code + '</code>') - 1) + '\\0'
     })
-    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    out = out.replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
-    out = out.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    return out.replace(/\0C(\d+)\0/g, (m, i) => codes[Number(i)])
+    out = out.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+    out = out.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>')
+    out = out.replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    return out.replace(/\\0C(\\d+)\\0/g, (m, i) => codes[Number(i)])
   }
   function renderMarkdown(src) {
     const blocks = []
-    let prepared = src.replace(/\`\`\`([\w-]*)\n?([\s\S]*?)\`\`\`/g, (m, lang, code) => {
+    let prepared = src.replace(/\\\`\\\`\\\`([\\w-]*)\\n?([\\s\\S]*?)\\\`\\\`\\\`/g, (m, lang, code) => {
       const i = blocks.push('<pre class="code"' + (lang ? ' data-lang="' + lang + '"' : '') + '><code>' + escapeHtml(code) + '</code></pre>') - 1
-      return '\0B' + i + '\0'
+      return '\\0B' + i + '\\0'
     })
     prepared = escapeHtml(prepared)
-    const lines = prepared.split('\n')
+    const lines = prepared.split('\\n')
     let html = ''
     let i = 0
     const inlineOf = line => inline(line)
     while (i < lines.length) {
       const line = lines[i]
-      const m = line.match(/^\0B(\d+)\0$/) || (line.length > 0 && line.match(/^\0B(\d+)\0\s*$/))
-      if (m) { html += blocks[Number(m[1])] ; i++; continue }
-      if (/^\s*$/.test(line)) { i++; continue }
+      const blockRef = line.match(/^\\0B(\\d+)\\0\\s*$/)
+      if (blockRef) { html += blocks[Number(blockRef[1])] ?? ''; i++; continue }
+      if (/^\\s*$/.test(line)) { i++; continue }
       const heading = line.match(/^(#{1,6}) (.+)$/)
       if (heading) {
         const level = Math.min(heading[1].length, 4)
         html += '<h' + level + '>' + inlineOf(heading[2]) + '</h' + level + '>'
         i++; continue
       }
-      if (/^(---|\*\*\*|___)\s*$/.test(line)) { html += '<hr>'; i++; continue }
-      if (/^&gt; /.test(line) || /^> /.test(line)) {
+      if (/^(---|\\*\\*\\*|___)\\s*$/.test(line)) { html += '<hr>'; i++; continue }
+      if (/^(&gt;|>) /.test(line)) {
         const quote = []
-        while (i < lines.length && (/^&gt; /.test(lines[i]) || /^> /.test(lines[i]))) {
+        while (i < lines.length && /^(&gt;|>) /.test(lines[i])) {
           quote.push(lines[i].replace(/^(&gt;|>) /, ''))
           i++
         }
@@ -138,37 +144,36 @@ export const workbenchPage = `<!doctype html>
         html += '<ul>' + items.join('') + '</ul>'
         continue
       }
-      if (/^\d+\. /.test(line)) {
+      if (/^\\d+\\. /.test(line)) {
         const items = []
-        while (i < lines.length && /^\d+\. /.test(lines[i])) { items.push('<li>' + inlineOf(lines[i].replace(/^\d+\. /, '')) + '</li>'); i++ }
+        while (i < lines.length && /^\\d+\\. /.test(lines[i])) { items.push('<li>' + inlineOf(lines[i].replace(/^\\d+\\. /, '')) + '</li>'); i++ }
         html += '<ol>' + items.join('') + '</ol>'
         continue
       }
-      if (/^\|.*\|$/.test(line) && i + 1 < lines.length && /^\|[ :\-|]+\|$/.test(lines[i + 1])) {
-        const header = line.split('|').slice(1, -1).map(c => c.trim())
+      if (/^\\|.*\\|$/.test(line) && i + 1 < lines.length && /^\\|[ :\\-|]+\\|$/.test(lines[i + 1])) {
+        const header = line.split('|').slice(1, -1).map(cell => cell.trim())
         i += 2
         const rows = []
-        while (i < lines.length && /^\|.*\|$/.test(lines[i])) {
-          rows.push(lines[i].split('|').slice(1, -1).map(c => c.trim()))
+        while (i < lines.length && /^\\|.*\\|$/.test(lines[i])) {
+          rows.push(lines[i].split('|').slice(1, -1).map(cell => cell.trim()))
           i++
         }
-        html += '<table><thead><tr>' + header.map(c => '<th>' + inlineOf(c) + '</th>').join('') + '</tr></thead><tbody>'
-          + rows.map(row => '<tr>' + row.map(c => '<td>' + inlineOf(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
+        html += '<table><thead><tr>' + header.map(cell => '<th>' + inlineOf(cell) + '</th>').join('') + '</tr></thead><tbody>'
+          + rows.map(row => '<tr>' + row.map(cell => '<td>' + inlineOf(cell) + '</td>').join('') + '</tr>').join('') + '</tbody></table>'
         continue
       }
       const para = []
-      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6} |[-*] |\d+\. |> |\||\0B)/.test(lines[i]) && !/^(---|\*\*\*|___)\s*$/.test(lines[i])) {
+      while (i < lines.length && !/^\\s*$/.test(lines[i]) && !/^(#{1,6} |[-*] |\\d+\\. |(&gt;|>) |\\||\\0B)/.test(lines[i]) && !/^(---|\\*\\*\\*|___)\\s*$/.test(lines[i])) {
         para.push(lines[i])
         i++
       }
       if (para.length > 0) html += '<p>' + para.map(inlineOf).join('<br>') + '</p>'
       else i++
     }
-    return html + blocks.map((b, idx) => html.includes('\0B' + idx + '\0') ? '' : '').join('')
-      .replace(/\0B(\d+)\0/g, (m, idx2) => blocks[Number(idx2)] ?? '')
+    return html.replace(/\\0B(\\d+)\\0/g, (m, idx) => blocks[Number(idx)] ?? '')
   }
 
-  // Expanded details survive re-renders (the live stream refetches often).
+  // --- render: structured entries; expanded state survives re-renders -------
   const openEntries = new Set()
   function render(state) {
     chat.innerHTML = ''
@@ -195,7 +200,7 @@ export const workbenchPage = `<!doctype html>
           else openEntries.delete(id)
         })
         const summary = document.createElement('summary')
-        summary.textContent = (entry.file ? '' : '') + entry.text
+        summary.textContent = entry.text
         details.appendChild(summary)
         const body = document.createElement('pre')
         body.textContent = entry.file ? entry.file.content : (entry.detail ?? '')
@@ -230,10 +235,9 @@ export const workbenchPage = `<!doctype html>
     text.value = ''
     post('/api/messages', { text: value })
   })
-  cancel.addEventListener('click', () => post('/api/cancel', {}))
+  document.getElementById('cancel').addEventListener('click', () => post('/api/cancel', {}))
 
-  render(await (await fetch('/api/history')).json())
-
+  // --- sessions ---------------------------------------------------------------
   async function renderSessions() {
     const data = await (await fetch('/api/sessions')).json()
     const select = document.getElementById('sessions')
@@ -248,23 +252,21 @@ export const workbenchPage = `<!doctype html>
   }
   renderSessions()
   document.getElementById('sessions').addEventListener('change', event => {
-    fetch('/api/sessions/' + event.target.value + '/activate', { method: 'POST' })
+    post('/api/sessions/' + event.target.value + '/activate', {})
   })
-  document.getElementById('new-session').addEventListener('click', () => {
-    fetch('/api/sessions', { method: 'POST' })
-  })
+  document.getElementById('new-session').addEventListener('click', () => post('/api/sessions', {}))
 
-  const stream = new EventSource('/events')
-  stream.onmessage = () => {
+  // --- one live stream drives everything --------------------------------------
+  const source = new EventSource('/events')
+  source.onmessage = () => {
     fetch('/api/history').then(response => response.json()).then(render)
   }
-  // Switching or creating sessions pushes a 'session' frame: reload the view.
-  stream.addEventListener('session', () => {
+  source.addEventListener('session', () => {
     renderSessions()
     fetch('/api/history').then(response => response.json()).then(render)
   })
 
-  // Interactive asking: the agent pauses for your answer.
+  // --- interactive asking -------------------------------------------------------
   const asks = document.createElement('div')
   asks.id = 'asks'
   document.body.insertBefore(asks, document.getElementById('composer'))
@@ -284,10 +286,10 @@ export const workbenchPage = `<!doctype html>
     const input = document.createElement('input')
     input.placeholder = '或输入你的回答…'
     card.appendChild(input)
-    const send = document.createElement('button')
-    send.textContent = '回答'
-    send.onclick = () => { const v = input.value.trim(); if (v) answerAsk(id, v, card) }
-    card.appendChild(send)
+    const answerButton = document.createElement('button')
+    answerButton.textContent = '回答'
+    answerButton.onclick = () => { const v = input.value.trim(); if (v) answerAsk(id, v, card) }
+    card.appendChild(answerButton)
     asks.appendChild(card)
   })
   source.addEventListener('ask-answered', event => {
@@ -295,25 +297,24 @@ export const workbenchPage = `<!doctype html>
     document.getElementById('ask-' + id)?.remove()
   })
   async function answerAsk(id, answer, card) {
-    await fetch('/api/asks/' + id, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ answer }),
-    })
+    await post('/api/asks/' + id, { answer })
     card.remove()
   }
 
-  // Governance you can see: guarded tools open an approval card.
+  // --- governance you can see ---------------------------------------------------
   const approvals = document.createElement('div')
   approvals.id = 'approvals'
   document.body.insertBefore(approvals, document.getElementById('composer'))
-  const source = new EventSource('/events')
   source.addEventListener('approval', event => {
     const { id, tool, input } = JSON.parse(event.data)
     const card = document.createElement('div')
     card.className = 'approval-card'
-    card.innerHTML = '<b>' + tool + '</b> 请求执行（需要你的批准）<pre>' +
-      JSON.stringify(input, null, 2) + '</pre>'
+    const label = document.createElement('div')
+    label.innerHTML = '<b>' + escapeHtml(tool) + '</b> 请求执行（需要你的批准）'
+    card.appendChild(label)
+    const payload = document.createElement('pre')
+    payload.textContent = JSON.stringify(input, null, 2)
+    card.appendChild(payload)
     const grant = document.createElement('button')
     grant.textContent = '批准'
     grant.onclick = () => decide(id, 'granted', card)
@@ -329,13 +330,11 @@ export const workbenchPage = `<!doctype html>
     document.getElementById('appr-' + id)?.remove()
   })
   async function decide(id, decision, card) {
-    await fetch('/api/approvals/' + id, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ decision }),
-    })
+    await post('/api/approvals/' + id, { decision })
     card.remove()
   }
+
+  render(await (await fetch('/api/history')).json())
 </script>
 </body>
 </html>
