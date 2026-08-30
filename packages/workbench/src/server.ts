@@ -13,6 +13,7 @@ import {
   openPersistentSessionLog,
   type StorageAdapter,
 } from '@sudive-ai/datum-storage'
+import { ApprovalDeniedError } from '@sudive-ai/datum-tools'
 import type { WorkbenchConfig } from './config.ts'
 import { createChatPresenter, type ChatViewState } from './presenter.ts'
 import { workbenchPage } from './page.ts'
@@ -63,6 +64,16 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
 
   const presenter = createChatPresenter()
   const clients = new Set<ServerResponse>()
+  // Interactive approvals: pending cases wait on a promise the UI resolves.
+  interface ApprovalCase {
+    readonly id: string
+    readonly tool: string
+    readonly input: unknown
+    resolve: () => void
+    reject: (error: ApprovalDeniedError) => void
+  }
+  const pendingApprovals = new Map<string, ApprovalCase>()
+  let approvalCounter = 0
   const disposers: Array<() => unknown> = []
   disposers.push(
     ctx.on('session/event', (event: SessionEvent) => {
@@ -74,6 +85,34 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   // Historical replay: a restored session starts the view from its stored
   // facts, so live rendering and replay share one path from the first frame.
   for (const entry of session.entries) presenter.apply(entry)
+
+  // The approval surface: 'interactive' mounts the UI as the approver —
+  // guarded tools open a case, the browser decides, the loop logs the fact.
+  // 'closed' (the default) mounts nothing: guarded tools refuse outright.
+  if (config.approval.mode === 'interactive') {
+    tools.setGuard((tool, input) => {
+      const id = `appr-${++approvalCounter}`
+      const frame = (event: string, data: unknown): void => {
+        for (const client of clients) client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      }
+      return new Promise<void>((resolveGuard, rejectGuard) => {
+        pendingApprovals.set(id, {
+          id, tool: tool.name, input,
+          resolve: () => {
+            pendingApprovals.delete(id)
+            frame('approval-decided', { id, decision: 'granted' })
+            resolveGuard()
+          },
+          reject: (error: ApprovalDeniedError) => {
+            pendingApprovals.delete(id)
+            frame('approval-decided', { id, decision: 'denied' })
+            rejectGuard(error)
+          },
+        })
+        frame('approval', { id, tool: tool.name, input })
+      })
+    }, 'ui')
+  }
 
   for (const pluginPath of config.plugins) {
     const absolute = resolve(process.cwd(), pluginPath)
@@ -155,6 +194,36 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       loop.cancel()
       response.writeHead(204)
       response.end()
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/api/approvals') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify([...pendingApprovals.values()].map(({ id, tool, input }) => ({ id, tool, input }))))
+      return
+    }
+    const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)$/)
+    if (request.method === 'POST' && approvalMatch) {
+      const approvalCase = pendingApprovals.get(decodeURIComponent(approvalMatch[1]!))
+      if (!approvalCase) {
+        response.writeHead(404, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'no such pending approval' }))
+        return
+      }
+      const body = (await readBody(request)) as { decision?: unknown }
+      if (body.decision === 'granted') {
+        approvalCase.resolve()
+        response.writeHead(204)
+        response.end()
+        return
+      }
+      if (body.decision === 'denied') {
+        approvalCase.reject(new ApprovalDeniedError(approvalCase.tool, 'ui', 'denied in the workbench UI'))
+        response.writeHead(204)
+        response.end()
+        return
+      }
+      response.writeHead(400, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ error: "decision must be 'granted' or 'denied'" }))
       return
     }
     response.writeHead(404, { 'content-type': 'application/json' })

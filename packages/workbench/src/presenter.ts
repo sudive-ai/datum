@@ -35,11 +35,20 @@ export interface ChatPresenter {
 /** Create a fresh presenter with an empty view. */
 export function createChatPresenter(): ChatPresenter {
   const messages: ChatViewMessage[] = []
+  const streaming = new Map<string, string>()
   let busy = false
 
   return {
     apply(event: SessionEvent): void {
       switch (event.type) {
+        case 'assistant/chunk': {
+          const delta = event.payload.delta
+          if (typeof delta['text'] === 'string') {
+            const current = streaming.get(event.payload.topCallId) ?? ''
+            streaming.set(event.payload.topCallId, current + delta['text'])
+          }
+          return
+        }
         case 'user/message': {
           const { source } = event.payload
           if (source.kind === 'tool') return // tool feedback renders inside the conversation flow, not as a human bubble
@@ -50,6 +59,7 @@ export function createChatPresenter(): ChatPresenter {
           return
         }
         case 'assistant/message':
+          streaming.delete(event.payload.topCallId)
           messages.push({
             role: 'assistant',
             text: event.payload.content
@@ -74,7 +84,10 @@ export function createChatPresenter(): ChatPresenter {
     },
 
     snapshot(): ChatViewState {
-      return { messages: [...messages], busy }
+      const partials = [...streaming.values()]
+        .filter(text => text.length > 0)
+        .map(text => ({ role: 'assistant' as const, text: `${text}…` }))
+      return { messages: [...messages, ...partials], busy }
     },
   }
 }

@@ -53,6 +53,8 @@ function buildEvent(random: () => number, seq: number): SessionEvent {
       case 'request/header': return { sessionId: SESSION, turnId, topCallId, reason: 'initial', model: 'm' }
       case 'request/context': return { sessionId: SESSION, topCallId, context: { messages: [] } }
       case 'session/end-seed': return { sessionId: SESSION, reason: { kind: 'completed' } }
+      case 'approval/requested': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), toolCallId: undefined, action: { tool: 'echo', input: {} } }
+      case 'approval/decided': return { sessionId: SESSION, approvalId: brand<'ApprovalId'>(`ap-${seq}`), decision: 'granted', approver: 'ui' }
     }
   })()
   return { seq: seq, time: 0, type, payload } as unknown as SessionEvent
@@ -79,6 +81,29 @@ test('live = replay: incremental folding and full-replay folding produce identic
   assert.deepEqual(reloaded.map(event => [event.seq, event.type]), generated.map(event => [event.seq, event.type]))
 
   assert.deepEqual(replay.snapshot(), live.snapshot())
+})
+
+test('streaming chunks render as a growing partial bubble until the message lands', () => {
+  const presenter = createChatPresenter()
+  const topCallId = brand<'TopCallId'>('c-1')
+  presenter.apply({ seq: 0 as never, time: 0, type: 'assistant/chunk', payload: {
+    sessionId: SESSION, topCallId, chunkSeq: 0, delta: { kind: 'text', text: ' hel' },
+  } })
+  presenter.apply({ seq: 1 as never, time: 0, type: 'assistant/chunk', payload: {
+    sessionId: SESSION, topCallId, chunkSeq: 1, delta: { kind: 'text', text: 'lo' },
+  } })
+  const partial = presenter.snapshot()
+  assert.deepEqual(partial.messages, [{ role: 'assistant', text: ' hello…' }])
+
+  presenter.apply({ seq: 2 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION, topCallId,
+    messageId: brand<'MessageId'>('m-1'),
+    content: [{ kind: 'text', text: 'hello' }],
+    chunkSeqs: [0, 1],
+    finishReason: { kind: 'stop' },
+  } })
+  const final = presenter.snapshot()
+  assert.deepEqual(final.messages, [{ role: 'assistant', text: 'hello' }])
 })
 
 test('tool feedback and chunks do not render as chat bubbles', () => {

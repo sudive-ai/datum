@@ -30,6 +30,11 @@ export interface WorkbenchConfig {
   }
   /** User plugin module paths, resolved against the process cwd. */
   readonly plugins: readonly string[]
+  /** The approval surface binding (governance you can see). */
+  readonly approval: {
+    /** `'closed'` mounts no approver (guarded tools refuse); `'interactive'` asks the UI. */
+    readonly mode: 'closed' | 'interactive'
+  }
   /** The storage engine binding (session facts survive restarts). */
   readonly storage: {
     /** `'sqlite'` is the default local engine; `'postgres'` is opt-in; `'memory'` is ephemeral. */
@@ -46,6 +51,11 @@ export const workbenchConfigSchema = Schema.intersect([
   Schema.object({
     port: Schema.natural().default(8642).description('HTTP port for the local workbench'),
     plugins: Schema.array(Schema.string()).default([]).description('user plugin module paths'),
+  }),
+  Schema.object({
+    approval: Schema.object({
+      mode: Schema.union(['closed', 'interactive']).default('closed'),
+    }).default({ mode: 'closed' } as never),
   }),
   Schema.object({
     storage: Schema.object({

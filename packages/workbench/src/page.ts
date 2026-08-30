@@ -29,6 +29,10 @@ export const workbenchPage = `<!doctype html>
            background: #21262d; color: inherit; cursor: pointer; font: inherit; }
   button:disabled { opacity: 0.5; cursor: default; }
   #busy { font-size: 12px; color: #d29922; align-self: flex-start; }
+  .approval-card { margin: 4px 16px; padding: 10px 12px; border: 1px solid #d29922;
+                   border-radius: 8px; background: #2b2205; font-size: 13px; }
+  .approval-card pre { font-size: 11px; color: #8b949e; margin: 6px 0; }
+  .approval-card button { margin-right: 8px; }
 </style>
 </head>
 <body>
@@ -84,6 +88,40 @@ export const workbenchPage = `<!doctype html>
   render(await (await fetch('/api/history')).json())
   new EventSource('/events').onmessage = () => {
     fetch('/api/history').then(response => response.json()).then(render)
+  }
+
+  // Governance you can see: guarded tools open an approval card.
+  const approvals = document.createElement('div')
+  approvals.id = 'approvals'
+  document.body.insertBefore(approvals, document.getElementById('composer'))
+  const source = new EventSource('/events')
+  source.addEventListener('approval', event => {
+    const { id, tool, input } = JSON.parse(event.data)
+    const card = document.createElement('div')
+    card.className = 'approval-card'
+    card.innerHTML = '<b>' + tool + '</b> 请求执行（需要你的批准）<pre>' +
+      JSON.stringify(input, null, 2) + '</pre>'
+    const grant = document.createElement('button')
+    grant.textContent = '批准'
+    grant.onclick = () => decide(id, 'granted', card)
+    const deny = document.createElement('button')
+    deny.textContent = '拒绝'
+    deny.onclick = () => decide(id, 'denied', card)
+    card.appendChild(grant)
+    card.appendChild(deny)
+    approvals.appendChild(card)
+  })
+  source.addEventListener('approval-decided', event => {
+    const { id } = JSON.parse(event.data)
+    document.getElementById('appr-' + id)?.remove()
+  })
+  async function decide(id, decision, card) {
+    await fetch('/api/approvals/' + id, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    })
+    card.remove()
   }
 </script>
 </body>
