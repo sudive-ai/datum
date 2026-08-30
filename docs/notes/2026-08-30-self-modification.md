@@ -91,3 +91,21 @@ the single rendering path — live = replay over the new entry shape — and a
 backward-compatible `messages` projection is kept in the snapshot for simple
 renderers and tests. Verified against DeepSeek: one turn folded into
 user → thinking → listing → thinking → file view → thinking → prose.
+
+
+## Addendum 4 — tool history must encode as protocol, not prose (same day)
+
+The live disconnect had a deeper cause than the frame naming: the OpenAI
+adapter encoded past assistant tool calls as bracketed prose
+([the assistant called tool X with {...}]) and tool feedback as plain user
+messages. The model learned the pattern and started *printing* fake calls
+instead of making real ones — the turn then ended normally (finish=stop)
+and looked disconnected mid-task.
+
+Encoding now follows the provider protocol exactly: an assistant message
+with tool_call blocks carries a native tool_calls array, feedback becomes a
+role:"tool" message tied to its tool_call_id (ChatMessage gained an
+optional toolCallId; deriveMessages sets it from the tool source word), and
+thinking blocks are dropped from requests entirely (reasoning content must
+not be sent back). Verified live: consecutive tool rounds (list -> read ->
+answer) run without the model ever printing fake calls.

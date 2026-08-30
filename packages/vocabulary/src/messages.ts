@@ -1,5 +1,5 @@
 import type { Content, ContentBlock } from './vocabulary.ts'
-import type { MessageId } from './ids.ts'
+import type { MessageId, ToolCallId } from './ids.ts'
 
 /**
  * One message of the model-visible conversation history.
@@ -15,4 +15,9 @@ export interface ChatMessage {
   readonly role: 'user' | 'assistant'
   /** The typed content words/blocks of the message. */
   readonly content: readonly (Content | ContentBlock)[]
+  /**
+   * For a tool-feedback message: the invocation it answers. The provider
+   * encoding turns this into a `role: "tool"` message tied to the call.
+   */
+  readonly toolCallId?: ToolCallId | undefined
 }

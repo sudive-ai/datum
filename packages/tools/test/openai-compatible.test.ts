@@ -99,3 +99,68 @@ test('a non-2xx provider answer fails loud with the status and detail', async ()
   }) as typeof fetch)
   await assert.rejects(() => adapter.chat(makeRequest()), /429/)
 })
+
+test('history encoding: assistant tool calls and feedback use the native protocol roles', async () => {
+  const capture: { url?: string; init?: RequestInit | undefined } = {}
+  const adapter = createOpenAICompatibleAdapter(CONFIG, stubFetch({
+    choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+  }, capture))
+
+  await adapter.chat({
+    ...makeRequest(),
+    messages: [
+      { messageId: brand<'MessageId'>('m-1'), role: 'user', content: [{ kind: 'text', text: 'search datum' }] },
+      {
+        messageId: brand<'MessageId'>('m-2'),
+        role: 'assistant',
+        content: [
+          { kind: 'text', text: '让我搜索。' },
+          { kind: 'tool_call', toolCallId: brand<'ToolCallId'>('call_1'), name: 'search', input: { q: 'datum' } },
+        ],
+      },
+      { messageId: brand<'MessageId'>('m-3'), role: 'user', content: [{ kind: 'text', text: '{"result":"found"}' }], toolCallId: brand<'ToolCallId'>('call_1') },
+    ],
+  })
+
+  const body = JSON.parse(String(capture.init!.body))
+  // The assistant call carries a NATIVE tool_calls array — never bracketed prose.
+  const assistant = body.messages[2]
+  assert.equal(assistant.role, 'assistant')
+  assert.equal(assistant.content, '让我搜索。')
+  assert.deepEqual(assistant.tool_calls, [{
+    id: 'call_1',
+    type: 'function',
+    function: { name: 'search', arguments: '{"q":"datum"}' },
+  }])
+  // Feedback rides as role:"tool" tied to the call id.
+  assert.deepEqual(body.messages[3], {
+    role: 'tool',
+    tool_call_id: 'call_1',
+    content: '{"result":"found"}',
+  })
+  // No bracketed fake-call prose anywhere in the history.
+  assert.ok(!JSON.stringify(body.messages).includes('the assistant called tool'))
+})
+
+test('history encoding: thinking blocks are dropped, not sent back', async () => {
+  const capture: { url?: string; init?: RequestInit | undefined } = {}
+  const adapter = createOpenAICompatibleAdapter(CONFIG, stubFetch({
+    choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+  }, capture))
+
+  await adapter.chat({
+    ...makeRequest(),
+    messages: [
+      {
+        messageId: brand<'MessageId'>('m-1'),
+        role: 'assistant',
+        content: [{ kind: 'thinking', text: 'internal reasoning' }, { kind: 'text', text: 'answer' }],
+      },
+    ],
+  })
+
+  const body = JSON.parse(String(capture.init!.body))
+  const assistant = body.messages[1]
+  assert.equal(assistant.content, 'answer')
+  assert.ok(!JSON.stringify(body.messages).includes('internal reasoning'))
+})

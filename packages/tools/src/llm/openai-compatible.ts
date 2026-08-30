@@ -1,4 +1,4 @@
-import { brand, type Content, type ContentBlock, type FinishReason, type JsonRecord } from '@sudive-ai/datum-vocabulary'
+import { brand, type Content, type ContentBlock, type FinishReason, type JsonRecord, type JsonValue } from '@sudive-ai/datum-vocabulary'
 import type { ChatDelta, ChatRequest, ChatResponse, LlmAdapter, ToolView } from './seam.ts'
 
 /** Configuration for {@link createOpenAICompatibleAdapter}; all fields required (fail loud). */
@@ -127,17 +127,53 @@ export function createOpenAICompatibleAdapter(
   }
 }
 
-/** Encode a normalized request into the OpenAI chat-completions wire shape. */
+/**
+ * Encode a normalized request into the OpenAI chat-completions wire shape.
+ *
+ * History follows the provider protocol exactly: an assistant message that
+ * requested tools carries a native `tool_calls` array, each tool feedback
+ * becomes a `role: "tool"` message tied to its `tool_call_id`, and thinking
+ * blocks are dropped (reasoning content must not be sent back — the model
+ * re-derives it). Encoding tool calls as bracketed prose instead teaches the
+ * model to *print* fake calls rather than make real ones.
+ */
 function encodeRequest(request: ChatRequest): JsonRecord {
+  const wire: Array<JsonRecord> = []
+  for (const message of request.messages) {
+    if (message.role === 'user' && message.toolCallId !== undefined) {
+      const feedback: JsonRecord = {
+        role: 'tool',
+        tool_call_id: message.toolCallId,
+        content: message.content.map(encodeText).join(''),
+      }
+      wire.push(feedback)
+      continue
+    }
+    if (message.role === 'assistant') {
+      const text = message.content.filter(block => block.kind === 'text').map(block => (block as { text: string }).text).join('')
+      const toolCalls = message.content.filter((block): block is Extract<ContentBlock, { kind: 'tool_call' }> => block.kind === 'tool_call')
+      const encoded: JsonRecord = toolCalls.length > 0
+        ? {
+            role: 'assistant',
+            content: text.length > 0 ? text : null,
+            tool_calls: toolCalls.map(call => ({
+              id: call.toolCallId,
+              type: 'function',
+              function: { name: call.name, arguments: JSON.stringify(call.input) },
+            })),
+          }
+        : { role: 'assistant', content: text.length > 0 ? text : null }
+      wire.push(encoded)
+      continue
+    }
+    wire.push({ role: 'user', content: message.content.map(encodeContentPart) } satisfies JsonRecord)
+  }
   return {
     model: request.model,
     max_tokens: request.maxTokens,
     messages: [
       { role: 'system', content: request.systemPrompt },
-      ...request.messages.map(message => ({
-        role: message.role,
-        content: message.content.map(encodeContentWord),
-      })),
+      ...wire,
     ],
     ...(request.tools.length > 0
       ? {
@@ -151,18 +187,18 @@ function encodeRequest(request: ChatRequest): JsonRecord {
   } satisfies JsonRecord
 }
 
-/** Encode one content word or block into an OpenAI message content part. */
-function encodeContentWord(word: Content | ContentBlock): JsonRecord {
-  const kind = word.kind
-  if (kind === 'text') return { type: 'text', text: word.text }
-  if (kind === 'thinking') return { type: 'text', text: `<thinking>${word.text}</thinking>` }
-  if (kind === 'tool_call') {
-    return { type: 'text', text: `[the assistant called tool ${word.name} with ${JSON.stringify(word.input)}]` }
-  }
-  if (kind === 'tool_result') {
-    return { type: 'text', text: `[tool result: ${JSON.stringify(word.output)}]` }
-  }
-  return { type: 'text', text: `[image ${word.mediaType}]` }
+/** Encode one content word or block of a user message into a content part. */
+function encodeContentPart(word: Content | ContentBlock): JsonRecord {
+  if (word.kind === 'text') return { type: 'text', text: word.text }
+  if (word.kind === 'tool_result') return { type: 'text', text: JSON.stringify(word.output) }
+  return { type: 'text', text: `[${word.kind}]` }
+}
+
+/** Flatten message content to plain text (tool feedback bodies). */
+function encodeText(word: Content | ContentBlock): string {
+  if (word.kind === 'text') return word.text
+  if (word.kind === 'tool_result') return JSON.stringify(word.output)
+  return ''
 }
 
 /** Decode the provider JSON into the normalized response; unknown shapes fail loud. */

@@ -39,10 +39,14 @@ export function deriveMessages(events: readonly SessionEvent[]): readonly ChatMe
     if (event.seq < keptFromSeq) continue
     if (event.type === 'context/compacted') continue
     if (event.type === 'user/message') {
+      const { source } = event.payload
       messages.push({
         messageId: event.payload.messageId,
         role: 'user',
         content: event.payload.content,
+        // Tool feedback keeps its call linkage: the provider encoding turns
+        // it into a role:"tool" message tied to the tool_call_id.
+        ...(source.kind === 'tool' ? { toolCallId: source.toolCallId } : {}),
       })
     } else if (event.type === 'assistant/message') {
       messages.push({
