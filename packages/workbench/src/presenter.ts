@@ -62,7 +62,8 @@ export interface ChatPresenter {
 /** Create a fresh presenter with an empty view. */
 export function createChatPresenter(): ChatPresenter {
   const entries: ChatViewEntry[] = []
-  const streaming = new Map<string, string>()
+  /** Per top call: the still-streaming thinking (folded live) and prose. */
+  const streaming = new Map<string, { thinking: string; text: string }>()
   /** toolCallId → index of its open activity entry, plus what it invoked. */
   const openTools = new Map<string, { index: number; name: string; input: Record<string, unknown> }>()
   let busy = false
@@ -72,10 +73,13 @@ export function createChatPresenter(): ChatPresenter {
       switch (event.type) {
         case 'assistant/chunk': {
           const delta = event.payload.delta
-          if (typeof delta['text'] === 'string') {
-            const current = streaming.get(event.payload.topCallId) ?? ''
-            streaming.set(event.payload.topCallId, current + delta['text'])
-          }
+          if (typeof delta['text'] !== 'string') return
+          const kind = delta['kind'] === 'thinking' ? 'thinking' as const : 'text' as const
+          const buffer = streaming.get(event.payload.topCallId) ?? { thinking: '', text: '' }
+          // Thinking folds live into a collapsed activity — it never widens
+          // into a prose bubble while it streams.
+          buffer[kind] += delta['text']
+          streaming.set(event.payload.topCallId, buffer)
           return
         }
         case 'user/message': {
@@ -190,8 +194,9 @@ export function createChatPresenter(): ChatPresenter {
 
     snapshot(): ChatViewState {
       const all = [...entries]
-      for (const text of streaming.values()) {
-        if (text.length > 0) all.push({ kind: 'message', role: 'assistant', text: `${text}…` })
+      for (const buffer of streaming.values()) {
+        if (buffer.thinking.length > 0) all.push({ kind: 'activity', text: '💭 思考过程', detail: buffer.thinking })
+        if (buffer.text.length > 0) all.push({ kind: 'message', role: 'assistant', text: `${buffer.text}…` })
       }
       return {
         entries: all,

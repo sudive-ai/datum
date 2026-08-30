@@ -202,3 +202,39 @@ test('write_file results carry the written content as a viewable file; failures 
   assert.match(failed.text, /write_file（失败）/)
   assert.equal(failed.file, undefined)
 })
+
+test('streaming thinking folds live into a collapsed activity, separate from the prose bubble', () => {
+  const presenter = createChatPresenter()
+  const topCallId = brand<'TopCallId'>('c-1')
+  // Thinking arrives first, streaming…
+  presenter.apply({ seq: 0 as never, time: 0, type: 'assistant/chunk', payload: {
+    sessionId: SESSION, topCallId, chunkSeq: 0, delta: { kind: 'thinking', text: '先想一下' },
+  } })
+  const mid = presenter.snapshot()
+  assert.deepEqual(mid.entries, [
+    { kind: 'activity', text: '💭 思考过程', detail: '先想一下' },
+  ])
+  presenter.apply({ seq: 1 as never, time: 0, type: 'assistant/chunk', payload: {
+    sessionId: SESSION, topCallId, chunkSeq: 1, delta: { kind: 'thinking', text: '，再回答' },
+  } })
+  assert.match(presenter.snapshot().entries[0]!.detail ?? '', /先想一下，再回答/)
+  // …then prose streams beside it as a partial bubble.
+  presenter.apply({ seq: 2 as never, time: 0, type: 'assistant/chunk', payload: {
+    sessionId: SESSION, topCallId, chunkSeq: 2, delta: { kind: 'text', text: '答' },
+  } })
+  assert.deepEqual(presenter.snapshot().entries.map(entry => [entry.kind, entry.text]), [
+    ['activity', '💭 思考过程'],
+    ['message', '答…'],
+  ])
+  // The assembled message retires both partials.
+  presenter.apply({ seq: 3 as never, time: 0, type: 'assistant/message', payload: {
+    sessionId: SESSION, topCallId, messageId: brand<'MessageId'>('m-1'),
+    content: [{ kind: 'thinking', text: '先想一下，再回答' }, { kind: 'text', text: '答' }],
+    chunkSeqs: [0, 1, 2],
+    finishReason: { kind: 'stop' },
+  } })
+  assert.deepEqual(presenter.snapshot().entries.map(entry => [entry.kind, entry.text]), [
+    ['activity', '💭 思考过程'],
+    ['message', '答'],
+  ])
+})
