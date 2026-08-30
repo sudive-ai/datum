@@ -45,3 +45,19 @@ live registrations, and governance still has to hold.
   using other registration surfaces (nested `ctx.plugin`, logger config)
   would need the same wrapper treatment — extend the proxy as those needs
   appear.
+
+## Addendum — hot-plug (same day)
+
+`load_plugin` / `unload_plugin` extend the workspace toolset to arbitrary
+conversation-authored plugins: scopes are keyed by absolute path (same-path
+load retires the old scope first, so hot updates never double-register),
+`reload_plugins` refreshes conversation-loaded plugins exactly like
+configured ones, and `GET /api/plugins` lists what is live. `load_plugin` is
+approval-gated — arbitrary code enters the runtime only through an approved
+door. Two lessons from the first real-model run: the ESM cache strikes again
+(hot-updating an already-loaded path must cache-bust its import, or the old
+module silently re-registers), and the model **invents plugin APIs**
+(`ctx.registerTool`/`run`) unless the exact interface — with a skeleton —
+lives in the tool description. After teaching the API in the description,
+the full loop succeeded against DeepSeek: author → approve → load → call the
+brand-new tool (25°C → 77°F).

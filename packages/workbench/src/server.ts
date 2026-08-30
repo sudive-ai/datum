@@ -192,26 +192,71 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     })
     tools.register({
       name: 'reload_plugins',
-      description: 'Re-read every plugin file from disk and replace your own registrations with what the files now say. '
+      description: 'Re-read every loaded plugin file from disk and replace your own registrations with what the files now say. '
         + 'Call it after editing a plugin file (including this tool set itself) to make changes live.',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
         await reloadPlugins()
-        return { reloaded: pluginScopes.map(scope => scope.path), tools: tools.list().map(tool => tool.name) }
+        return { reloaded: [...pluginScopes.values()].map(scope => scope.path), tools: tools.list().map(tool => tool.name) }
+      },
+    })
+    tools.register({
+      name: 'load_plugin',
+      description: 'Load (or hot-update) a plugin module from the workspace. Requires approval. The module default-exports a function '
+        + 'receiving the context `ctx`. EXACT API — register tools with `ctx.tools.register({ name, description, parameters, execute })` '
+        + '(execute receives `(input, context)` and returns a JSON object); listen with `ctx.on(name, listener)` (e.g. agent/pre-step). '
+        + 'Example:\n'
+        + 'export default (ctx) => {\n'
+        + '  ctx.tools.register({\n'
+        + '    name: "my_tool", description: "what it does",\n'
+        + '    parameters: { type: "object", properties: { x: { type: "string" } }, required: ["x"] },\n'
+        + '    execute: (input) => ({ result: String(input.x).toUpperCase() }),\n'
+        + '  })\n'
+        + '}\n'
+        + 'Do NOT invent other methods — there is no ctx.registerTool and no run field. New tools are usable in the very next step.',
+      parameters: { type: 'object', properties: { path: { type: 'string', description: 'workspace-relative .ts/.js path' } }, required: ['path'] },
+      requiresApproval: true,
+      execute: async input => {
+        const path = inWorkspace(String(input['path'] ?? ''))
+        if (!/\.(ts|js|mjs)$/.test(path)) throw new Error('load_plugin: only .ts/.js/.mjs modules can be loaded')
+        // Always cache-bust: a hot update must read the file as it is now,
+        // never the ESM cache's copy of what it used to be.
+        const mod = (await import(`${pathToFileURL(path).href}?t=${Date.now()}`)) as { default?: DatumPlugin } & DatumPlugin
+        await applyPlugin(path, mod)
+        return { loaded: path, tools: tools.list().map(tool => tool.name) }
+      },
+    })
+    tools.register({
+      name: 'unload_plugin',
+      description: 'Unload a loaded plugin — its registrations are removed (reversible teardown).',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      execute: async input => {
+        const absolute = inWorkspace(String(input['path'] ?? ''))
+        const scope = pluginScopes.get(absolute)
+        if (!scope) throw new Error(`unload_plugin: no loaded plugin at ${JSON.stringify(String(input['path'] ?? ''))}`)
+        disposeScope(scope)
+        pluginScopes.delete(absolute)
+        return { unloaded: absolute, tools: tools.list().map(tool => tool.name) }
       },
     })
   }
 
-  // --- user plugins (reversible: reload replaces them wholesale) -------------
+  // --- user plugins (reversible: hot-pluggable, reload replaces wholesale) ---
   //
   // Each plugin runs against a *scoped* context that records every
-  // registration it makes (tools, listeners); a reload replays those
-  // disposers in reverse before applying the new code. Ownership lives here,
-  // at the workbench, not in kernel fiber bookkeeping.
+  // registration it makes (tools, listeners); unloading replays those
+  // disposers in reverse before the replacement applies. Ownership lives
+  // here, at the workbench, not in kernel fiber bookkeeping. Scopes are
+  // keyed by absolute path, so conversation-loaded plugins refresh on
+  // reload exactly like configured ones.
   interface PluginScope { path: string; disposers: Array<() => unknown> }
-  const pluginScopes: PluginScope[] = []
+  const pluginScopes = new Map<string, PluginScope>()
+  const disposeScope = (scope: PluginScope): void => {
+    for (const dispose of [...scope.disposers].reverse()) dispose()
+  }
   const applyPlugin = async (pluginPath: string, preloaded?: { default?: DatumPlugin } & DatumPlugin): Promise<void> => {
     const absolute = resolve(process.cwd(), pluginPath)
+    const previous = pluginScopes.get(absolute)
     const mod = preloaded ?? ((await import(pathToFileURL(absolute).href)) as { default?: DatumPlugin } & DatumPlugin)
     const plugin = (mod.default ?? mod) as DatumPlugin
     const scope: PluginScope = { path: absolute, disposers: [] }
@@ -241,8 +286,11 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         return Reflect.get(target, prop)
       },
     })
+    // Same path re-applied (hot update): the old scope retires first, so
+    // replacing a plugin never doubles its registrations.
+    if (previous) disposeScope(previous)
     plugin(scopedCtx)
-    pluginScopes.push(scope)
+    pluginScopes.set(absolute, scope)
   }
   for (const pluginPath of config.plugins) await applyPlugin(pluginPath)
 
@@ -254,12 +302,9 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
    */
   const reloadPlugins = async (): Promise<void> => {
     const fresh: Array<{ path: string; mod: { default?: DatumPlugin } & DatumPlugin }> = []
-    for (const { path } of pluginScopes) {
-      const mod = (await import(`${pathToFileURL(path).href}?t=${Date.now()}`)) as { default?: DatumPlugin } & DatumPlugin
-      fresh.push({ path, mod })
-    }
-    for (const scope of pluginScopes.splice(0)) {
-      for (const dispose of [...scope.disposers].reverse()) dispose()
+    for (const scope of pluginScopes.values()) {
+      const mod = (await import(`${pathToFileURL(scope.path).href}?t=${Date.now()}`)) as { default?: DatumPlugin } & DatumPlugin
+      fresh.push({ path: scope.path, mod })
     }
     for (const { path, mod } of fresh) await applyPlugin(path, mod)
   }
@@ -438,6 +483,11 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       void active.loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
       response.writeHead(202, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ messageId }))
+      return
+    }
+    if (request.method === 'GET' && url.pathname === '/api/plugins') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify([...pluginScopes.values()].map(scope => scope.path)))
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/reload-plugins') {
