@@ -21,6 +21,14 @@ environment is loaded automatically.
   `agent/pre-step` / `agent/request` waterfalls, observe `agent/*` events.
   Everything is a reversible registration; nothing here patches the runtime.
 
+## Self-modification (默认能力)
+
+The workbench mounts a self-modification toolset over the workspace:
+`read_file` / `list_files` / `write_file` (write is approval-gated — the UI
+asks you first) and `reload_plugins` (re-reads every plugin file and replaces
+the live registrations). A `workbench.page.html` in the workspace overrides
+the chat UI itself. Try: "把 self-plugin.ts 里的问候语改成 XX，然后重载插件"。
+
 ## The rules you can rely on
 
 - Everything the model saw is in the log (`request/context`); nothing can

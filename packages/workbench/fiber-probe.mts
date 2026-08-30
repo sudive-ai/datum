@@ -1,0 +1,19 @@
+import { Context } from '@sudive-ai/cordis'
+import { ToolService } from '@sudive-ai/datum-tools'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const dir = join(process.cwd(), '.fiber-probe-' + Date.now())
+mkdirSync(dir, { recursive: true })
+const pluginPath = join(dir, 'p.ts')
+writeFileSync(pluginPath, `export default (ctx) => { ctx.tools.register({ name: 't1', description: '', parameters: { type: 'object', properties: {} }, execute: () => ({}) }) }\n`)
+
+const ctx = new Context()
+const tools = new ToolService(ctx, 'tools')
+const mod = await import(pathToFileURL(pluginPath).href)
+const fiber = ctx.plugin(mod.default)
+await fiber
+console.log('after plugin:', tools.list().map(t => t.name))
+await fiber.dispose()
+console.log('after dispose:', tools.list().map(t => t.name))

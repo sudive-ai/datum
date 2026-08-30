@@ -1,3 +1,4 @@
+import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -156,12 +157,111 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }, 'ui')
   }
 
-  // --- user plugins -----------------------------------------------------------
-  for (const pluginPath of config.plugins) {
+  // --- self-modification workspace: file tools + reload ----------------------
+  const workspaceRoot = resolve(process.cwd(), config.workspace.root)
+  const inWorkspace = (path: string): string => {
+    const target = resolve(workspaceRoot, path)
+    if (target !== workspaceRoot && !target.startsWith(workspaceRoot + '/')) {
+      throw new Error(`refusing: ${JSON.stringify(path)} escapes the workspace root`)
+    }
+    return target
+  }
+  if (config.workspace.fileTools) {
+    tools.register({
+      name: 'read_file',
+      description: 'Read a text file inside your workspace. Paths are relative to the workspace root.',
+      parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      execute: async input => ({ content: await readFile(inWorkspace(String(input['path'] ?? '')), 'utf8') }),
+    })
+    tools.register({
+      name: 'list_files',
+      description: 'List the entries of a directory inside your workspace.',
+      parameters: { type: 'object', properties: { path: { type: 'string', description: 'defaults to the workspace root' } } },
+      execute: async input => ({ entries: await readdir(inWorkspace(String(input['path'] ?? '.'))) }),
+    })
+    tools.register({
+      name: 'write_file',
+      description: 'Create or overwrite a text file inside your workspace. Requires approval. '
+        + 'Special file: workbench.page.html — the UI page reloads from it, so editing it changes your own chat interface.',
+      parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+      requiresApproval: true,
+      execute: async input => {
+        await writeFile(inWorkspace(String(input['path'] ?? '')), String(input['content'] ?? ''), 'utf8')
+        return { written: String(input['path'] ?? '') }
+      },
+    })
+    tools.register({
+      name: 'reload_plugins',
+      description: 'Re-read every plugin file from disk and replace your own registrations with what the files now say. '
+        + 'Call it after editing a plugin file (including this tool set itself) to make changes live.',
+      parameters: { type: 'object', properties: {} },
+      execute: async () => {
+        await reloadPlugins()
+        return { reloaded: pluginScopes.map(scope => scope.path), tools: tools.list().map(tool => tool.name) }
+      },
+    })
+  }
+
+  // --- user plugins (reversible: reload replaces them wholesale) -------------
+  //
+  // Each plugin runs against a *scoped* context that records every
+  // registration it makes (tools, listeners); a reload replays those
+  // disposers in reverse before applying the new code. Ownership lives here,
+  // at the workbench, not in kernel fiber bookkeeping.
+  interface PluginScope { path: string; disposers: Array<() => unknown> }
+  const pluginScopes: PluginScope[] = []
+  const applyPlugin = async (pluginPath: string, preloaded?: { default?: DatumPlugin } & DatumPlugin): Promise<void> => {
     const absolute = resolve(process.cwd(), pluginPath)
-    const mod = (await import(pathToFileURL(absolute).href)) as { default?: DatumPlugin } & DatumPlugin
+    const mod = preloaded ?? ((await import(pathToFileURL(absolute).href)) as { default?: DatumPlugin } & DatumPlugin)
     const plugin = (mod.default ?? mod) as DatumPlugin
-    ctx.plugin(plugin)
+    const scope: PluginScope = { path: absolute, disposers: [] }
+    const scopedCtx = new Proxy(ctx, {
+      get(target, prop) {
+        if (prop === 'tools') {
+          return new Proxy(Reflect.get(target, prop), {
+            get(toolTarget, toolProp) {
+              if (toolProp === 'register') {
+                return (definition: Parameters<ToolService['register']>[0]) => {
+                  const disposer = target.tools.register(definition)
+                  scope.disposers.push(disposer)
+                  return disposer
+                }
+              }
+              return Reflect.get(toolTarget, toolProp)
+            },
+          })
+        }
+        if (prop === 'on' || prop === 'once') {
+          return (name: string, listener: (...args: never[]) => unknown, options?: boolean | { prepend?: boolean; global?: boolean }) => {
+            const disposer = (target as unknown as { on: (n: string, l: (...args: never[]) => unknown, o?: unknown) => () => boolean })[prop === 'once' ? 'on' : prop](name, listener, options)
+            scope.disposers.push(disposer)
+            return disposer
+          }
+        }
+        return Reflect.get(target, prop)
+      },
+    })
+    plugin(scopedCtx)
+    pluginScopes.push(scope)
+  }
+  for (const pluginPath of config.plugins) await applyPlugin(pluginPath)
+
+  /**
+   * Reload every user plugin from disk: new code imports first (fail loud
+   * before anything tears down), then each old scope's disposers replay in
+   * reverse — unregistering exactly what that plugin registered — and the
+   * new code applies.
+   */
+  const reloadPlugins = async (): Promise<void> => {
+    const fresh: Array<{ path: string; mod: { default?: DatumPlugin } & DatumPlugin }> = []
+    for (const { path } of pluginScopes) {
+      const mod = (await import(`${pathToFileURL(path).href}?t=${Date.now()}`)) as { default?: DatumPlugin } & DatumPlugin
+      fresh.push({ path, mod })
+    }
+    for (const scope of pluginScopes.splice(0)) {
+      for (const dispose of [...scope.disposers].reverse()) dispose()
+    }
+    for (const { path, mod } of fresh) await applyPlugin(path, mod)
   }
 
   // --- activation: restore-or-create one session and bind its loop ------------
@@ -226,8 +326,16 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', 'http://localhost')
     if (request.method === 'GET' && url.pathname === '/') {
+      // A workbench.page.html in the workspace overrides the built-in page —
+      // the agent can redesign its own interface with write_file.
+      let page: string
+      try {
+        page = await readFile(inWorkspace('workbench.page.html'), 'utf8')
+      } catch {
+        page = workbenchPage
+      }
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      response.end(workbenchPage)
+      response.end(page)
       return
     }
     if (request.method === 'GET' && url.pathname === '/api/health') {
@@ -330,6 +438,12 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       void active.loop.runTurn(messageId).catch(() => undefined) // terminal facts land in the log regardless
       response.writeHead(202, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ messageId }))
+      return
+    }
+    if (request.method === 'POST' && url.pathname === '/api/reload-plugins') {
+      await reloadPlugins()
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ tools: tools.list().map(tool => tool.name) }))
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/cancel') {

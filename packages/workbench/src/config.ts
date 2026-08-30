@@ -30,6 +30,17 @@ export interface WorkbenchConfig {
   }
   /** User plugin module paths, resolved against the process cwd. */
   readonly plugins: readonly string[]
+  /**
+   * The agent's self-modification workspace: file tools are sandboxed here,
+   * plugin reloads re-import from here, and a `workbench.page.html` here
+   * overrides the built-in UI page.
+   */
+  readonly workspace: {
+    /** Register the read_file / write_file / list_files / reload_plugins tools. */
+    readonly fileTools: boolean
+    /** Sandbox root, resolved against the process cwd. */
+    readonly root: string
+  }
   /** Long-term memory composition (remember/recall tools + prompt injection). */
   readonly memory: {
     readonly enabled: boolean
@@ -63,6 +74,15 @@ export const workbenchConfigSchema = Schema.intersect([
   Schema.object({
     port: Schema.natural().default(8642).description('HTTP port for the local workbench'),
     plugins: Schema.array(Schema.string()).default([]).description('user plugin module paths'),
+  }),
+  Schema.object({
+    workspace: Schema.object({
+      fileTools: Schema.boolean().default(true),
+      root: Schema.string().default('.'),
+    }).default({
+      fileTools: true,
+      root: '.',
+    } as never),
   }),
   Schema.object({
     memory: Schema.object({
