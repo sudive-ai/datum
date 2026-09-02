@@ -224,7 +224,9 @@ test('crash repair: a dangling turn/start is closed as aborted at restore', asyn
     const types = restored.session.entries.map(entry => entry.type)
     assert.deepEqual(types, ['user/message', 'turn/start', 'turn/end'])
     const end = restored.session.entries.at(-1)!
-    assert.deepEqual(end.payload.reason, { kind: 'aborted' })
+    assert.equal(end.type, 'turn/end')
+    const ended = end as Extract<SessionEvent, { type: 'turn/end' }>
+    assert.deepEqual(ended.payload.reason, { kind: 'aborted' })
     // And the repair fact itself persisted.
     await new Promise(resolveTimeout => setTimeout(resolveTimeout, 50))
     assert.equal((await reopened.load(SESSION)).length, 3)

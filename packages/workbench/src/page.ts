@@ -271,6 +271,8 @@ export const workbenchPage = `<!doctype html>
   async function renderSessions() {
     const data = await (await fetch('/api/sessions')).json()
     const select = document.getElementById('sessions')
+    // The dropdown the user opened must not rebuild mid-interaction.
+    if (select.matches(':focus')) return
     select.innerHTML = ''
     for (const item of data.sessions) {
       const option = document.createElement('option')

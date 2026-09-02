@@ -315,7 +315,12 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   // here, at the workbench, not in kernel fiber bookkeeping. Scopes are
   // keyed by absolute path, so conversation-loaded plugins refresh on
   // reload exactly like configured ones.
-  interface PluginScope { path: string; disposers: Array<() => unknown> }
+  interface PluginScope {
+    path: string
+    disposers: Array<() => unknown>
+    /** The loaded module — re-applied when a later reload of this path fails. */
+    scopePlugin: DatumPlugin
+  }
   const pluginScopes = new Map<string, PluginScope>()
   const disposeScope = (scope: PluginScope): void => {
     for (const dispose of [...scope.disposers].reverse()) dispose()
@@ -325,7 +330,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     const previous = pluginScopes.get(absolute)
     const mod = preloaded ?? ((await import(pathToFileURL(absolute).href)) as { default?: DatumPlugin } & DatumPlugin)
     const plugin = (mod.default ?? mod) as DatumPlugin
-    const scope: PluginScope = { path: absolute, disposers: [] }
+    const scope: PluginScope = { path: absolute, disposers: [], scopePlugin: plugin }
     const scopedCtx = new Proxy(ctx, {
       get(target, prop) {
         if (prop === 'tools') {
@@ -334,7 +339,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
               if (toolProp === 'register') {
                 return (definition: Parameters<ToolService['register']>[0]) => {
                   const disposer = target.tools.register(definition)
-                  scope.disposers.push(disposer)
+                  scope.disposers.push(() => { disposer() })
                   return disposer
                 }
               }
@@ -352,10 +357,29 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
         return Reflect.get(target, prop)
       },
     })
-    // Same path re-applied (hot update): the old scope retires first, so
-    // replacing a plugin never doubles its registrations.
+    // Hot update semantics: retire the previous scope FIRST (same-path
+    // reload replaces the same registrations — registering before retiring
+    // would collide with the old names), then apply the new code. If the
+    // new code fails, roll it back and re-apply the previous module so the
+    // workspace never ends up worse than before the reload.
     if (previous) disposeScope(previous)
-    plugin(scopedCtx)
+    try {
+      plugin(scopedCtx)
+    } catch (error) {
+      if (previous) {
+        try {
+          previous.scopePlugin(scopedCtx)
+          pluginScopes.set(absolute, previous)
+          ctx.logger.error(`plugin reload failed; previous version restored: ${String(error).slice(0, 200)}`)
+          return
+        } catch (restoreError) {
+          ctx.logger.error(`plugin reload failed AND previous restore failed: ${String(restoreError).slice(0, 200)}`)
+        }
+      } else {
+        disposeScope(scope)
+      }
+      throw error
+    }
     pluginScopes.set(absolute, scope)
   }
   for (const pluginPath of config.plugins) await applyPlugin(pluginPath)
@@ -429,7 +453,10 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
   // --- HTTP ---------------------------------------------------------------------
   const server = createServer((request, response) => {
     void route(request, response).catch(error => {
-      response.writeHead(500, { 'content-type': 'application/json' })
+      // A malformed request body is the caller's mistake (400); anything
+      // else is ours (500). Both answer loudly, neither kills the server.
+      const badRequest = error instanceof SyntaxError
+      response.writeHead(badRequest ? 400 : 500, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ error: String(error) }))
     })
   })
@@ -529,7 +556,10 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       })
       response.write(':connected\n\n')
       clients.add(response)
-      request.on('close', () => clients.delete(response))
+      const drop = (): void => { clients.delete(response) }
+      request.on('close', drop)
+      request.on('error', drop)
+      response.on('error', drop) // a dead socket must not accumulate in the set
       return
     }
     if (request.method === 'POST' && url.pathname === '/api/messages') {
@@ -706,7 +736,7 @@ function createStorage(config: WorkbenchConfig): StorageAdapter | undefined {
   }
 }
 
-/** Read and parse a JSON request body. */
+/** Read and parse a JSON request body. Malformed bodies reject with SyntaxError (mapped to 400). */
 function readBody(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolveBody, rejectBody) => {
     let data = ''
@@ -717,7 +747,7 @@ function readBody(request: IncomingMessage): Promise<unknown> {
       try {
         resolveBody(data.length > 0 ? JSON.parse(data) : {})
       } catch (error) {
-        rejectBody(error)
+        rejectBody(error instanceof SyntaxError ? error : new SyntaxError(String(error)))
       }
     })
     request.on('error', rejectBody)
