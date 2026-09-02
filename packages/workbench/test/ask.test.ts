@@ -148,3 +148,40 @@ test('live broadcast frames are unnamed so the page refetches history on events'
     await handle.close()
   }
 })
+
+test('pending asks and approvals survive a page reload (initial fetch restores the cards)', async () => {
+  const handle = await startWorkbench(resolveWorkbenchConfig({
+    port: 0,
+    agent: { name: 'restore-agent', systemPrompt: '', model: 'mock-model', maxTokens: 64 },
+    llm: { provider: 'mock', apiKeyEnv: 'UNUSED_KEY' },
+    ask: { enabled: true },
+    approval: { mode: 'interactive' },
+    memory: { enabled: false },
+    storage: { engine: 'memory', path: 'unused.db', connectionStringEnv: 'UNUSED_PG' },
+  }))
+  try {
+    // Seed a pending ask through the real tool path.
+    const askPromise = handle.ctx.tools.execute('ask_user', { question: '选哪个？', choices: ['a', 'b'] }, { signal: undefined })
+    const deadline = Date.now() + 5000
+    let pending: Array<{ id: string }> = []
+    while (Date.now() < deadline) {
+      pending = (await (await fetch(`http://127.0.0.1:${handle.port}/api/asks`)).json()) as typeof pending
+      if (pending.length > 0) break
+      await new Promise(r => setTimeout(r, 50))
+    }
+    assert.equal(pending.length, 1)
+    // Simulating a reload: a fresh GET returns the same pending case.
+    const again = (await (await fetch(`http://127.0.0.1:${handle.port}/api/asks`)).json()) as Array<{ id: string }>
+    assert.deepEqual(again.map(item => item.id), pending.map(item => item.id))
+    // Answering via the API retires it everywhere.
+    await fetch(`http://127.0.0.1:${handle.port}/api/asks/${pending[0]!.id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answer: 'a' }),
+    })
+    void askPromise
+    assert.equal(((await (await fetch(`http://127.0.0.1:${handle.port}/api/asks`)).json()) as unknown[]).length, 0)
+  } finally {
+    await handle.close()
+  }
+})

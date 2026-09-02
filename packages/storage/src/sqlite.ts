@@ -38,7 +38,8 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
     create table if not exists datum_sessions (
       session_id text primary key,
       created_at integer not null,
-      agent      text not null default ''
+      agent      text not null default '',
+      title      text not null default ''
     );
     create table if not exists datum_memories (
       id         text primary key,
@@ -48,6 +49,17 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
       updated_at integer not null
     );
   `)
+  // Lightweight migration: databases created before a column existed get it
+  // added on open (duplicate add attempts fail silently per column).
+  const addColumn = (column: string, definition: string): void => {
+    try {
+      db.exec(`alter table datum_sessions add column ${column} ${definition}`)
+    } catch {
+      // column already exists — the only expected failure
+    }
+  }
+  addColumn('title', "text not null default ''")
+  addColumn('agent', "text not null default ''")
 
   const memories: MemoryStore = {
     async put(key: string, content: string): Promise<MemoryEntry> {
@@ -90,6 +102,7 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
     async listSessions(): Promise<readonly SessionSummary[]> {
       const rows = db.prepare(`
         select s.session_id as session_id,
+               s.title as title,
                coalesce(min(e.time), s.created_at) as first_time,
                coalesce(max(e.time), s.created_at) as last_time,
                count(e.seq) as entries
@@ -97,18 +110,23 @@ export function createSqliteStorage(config: SqliteStorageConfig): StorageAdapter
         left join datum_session_events e on e.session_id = s.session_id
         group by s.session_id
         order by last_time desc
-      `).all() as Array<{ session_id: string; first_time: number; last_time: number; entries: number }>
+      `).all() as Array<{ session_id: string; title: string; first_time: number; last_time: number; entries: number }>
       return rows.map(row => ({
         sessionId: row.session_id as SessionId,
+        title: row.title,
         firstTime: row.first_time,
         lastTime: row.last_time,
         entries: row.entries,
       }))
     },
 
-    registerSession: async (sessionId, agent) => {
-      db.prepare('insert or ignore into datum_sessions (session_id, created_at, agent) values (?, ?, ?)')
-        .run(sessionId, Date.now(), agent)
+    registerSession: async (sessionId, agent, title) => {
+      db.prepare('insert or ignore into datum_sessions (session_id, created_at, agent, title) values (?, ?, ?, ?)')
+        .run(sessionId, Date.now(), agent, title ?? '')
+    },
+
+    renameSession: async (sessionId, title) => {
+      db.prepare('update datum_sessions set title = ? where session_id = ?').run(title, sessionId)
     },
 
     async deleteSession(sessionId: SessionId): Promise<void> {

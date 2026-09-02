@@ -277,7 +277,7 @@ export const workbenchPage = `<!doctype html>
     for (const item of data.sessions) {
       const option = document.createElement('option')
       option.value = item.sessionId
-      option.textContent = item.sessionId.slice(0, 14) + ' · ' + new Date(item.lastTime).toLocaleString()
+      option.textContent = (item.title || item.sessionId.slice(0, 14)) + ' · ' + new Date(item.lastTime).toLocaleString()
       if (item.sessionId === data.active) option.selected = true
       select.appendChild(option)
     }
@@ -324,10 +324,10 @@ export const workbenchPage = `<!doctype html>
   const asks = document.createElement('div')
   asks.id = 'asks'
   document.body.insertBefore(asks, document.getElementById('composer'))
-  source.addEventListener('ask', event => {
-    const { id, question, choices } = JSON.parse(event.data)
+  function buildAskCard(id, question, choices) {
     const card = document.createElement('div')
     card.className = 'ask-card'
+    card.id = 'ask-' + id
     const label = document.createElement('div')
     label.textContent = question
     card.appendChild(label)
@@ -344,7 +344,16 @@ export const workbenchPage = `<!doctype html>
     answerButton.textContent = '回答'
     answerButton.onclick = () => { const v = input.value.trim(); if (v) answerAsk(id, v, card) }
     card.appendChild(answerButton)
-    asks.appendChild(card)
+    return card
+  }
+  // Pending asks survive a page reload: the server still waits on them.
+  fetch('/api/asks').then(response => response.json()).then(pending => {
+    for (const item of pending) asks.appendChild(buildAskCard(item.id, item.question, item.choices))
+  })
+  source.addEventListener('ask', event => {
+    const { id, question, choices } = JSON.parse(event.data)
+    if (document.getElementById('ask-' + id)) return
+    asks.appendChild(buildAskCard(id, question, choices))
   })
   source.addEventListener('ask-answered', event => {
     const { id } = JSON.parse(event.data)
@@ -359,10 +368,10 @@ export const workbenchPage = `<!doctype html>
   const approvals = document.createElement('div')
   approvals.id = 'approvals'
   document.body.insertBefore(approvals, document.getElementById('composer'))
-  source.addEventListener('approval', event => {
-    const { id, tool, input } = JSON.parse(event.data)
+  function buildApprovalCard(id, tool, input) {
     const card = document.createElement('div')
     card.className = 'approval-card'
+    card.id = 'appr-' + id
     const label = document.createElement('div')
     label.innerHTML = '<b>' + escapeHtml(tool) + '</b> 请求执行（需要你的批准）'
     card.appendChild(label)
@@ -377,7 +386,15 @@ export const workbenchPage = `<!doctype html>
     deny.onclick = () => decide(id, 'denied', card)
     card.appendChild(grant)
     card.appendChild(deny)
-    approvals.appendChild(card)
+    return card
+  }
+  fetch('/api/approvals').then(response => response.json()).then(pending => {
+    for (const item of pending) approvals.appendChild(buildApprovalCard(item.id, item.tool, item.input))
+  })
+  source.addEventListener('approval', event => {
+    const { id, tool, input } = JSON.parse(event.data)
+    if (document.getElementById('appr-' + id)) return
+    approvals.appendChild(buildApprovalCard(id, tool, input))
   })
   source.addEventListener('approval-decided', event => {
     const { id } = JSON.parse(event.data)

@@ -44,7 +44,8 @@ export function createPostgresStorage(config: PostgresStorageConfig): StorageAda
       create table if not exists datum_sessions (
         session_id text primary key,
         created_at bigint not null,
-        agent      text not null default ''
+        agent      text not null default '',
+        title      text not null default ''
       )
     `
     await sql`
@@ -56,6 +57,14 @@ export function createPostgresStorage(config: PostgresStorageConfig): StorageAda
         updated_at bigint not null
       )
     `
+    // Lightweight migration for databases created before these columns.
+    for (const [column, definition] of [['title', "text not null default ''"], ['agent', "text not null default ''"]] as const) {
+      try {
+        await sql.unsafe(`alter table datum_sessions add column ${column} ${definition}`)
+      } catch {
+        // column already exists (42701 duplicate column)
+      }
+    }
     initialized = true
   }
 
@@ -114,6 +123,7 @@ export function createPostgresStorage(config: PostgresStorageConfig): StorageAda
       await ensureSchema()
       const rows = await sql`
         select s.session_id as session_id,
+               s.title as title,
                coalesce(min(e.time), s.created_at) as first_time,
                coalesce(max(e.time), s.created_at) as last_time,
                count(e.seq) as entries
@@ -121,21 +131,26 @@ export function createPostgresStorage(config: PostgresStorageConfig): StorageAda
         left join datum_session_events e on e.session_id = s.session_id
         group by s.session_id
         order by last_time desc
-      ` as Array<{ session_id: string; first_time: number; last_time: number; entries: number }>
+      ` as Array<{ session_id: string; title: string; first_time: number; last_time: number; entries: number }>
       return rows.map(row => ({
         sessionId: row.session_id as SessionId,
+        title: row.title,
         firstTime: Number(row.first_time),
         lastTime: Number(row.last_time),
         entries: Number(row.entries),
       }))
     },
 
-    registerSession: async (sessionId, agent) => {
+    registerSession: async (sessionId, agent, title) => {
       await sql`
-        insert into datum_sessions (session_id, created_at, agent)
-        values (${sessionId}, ${Date.now()}, ${agent})
+        insert into datum_sessions (session_id, created_at, agent, title)
+        values (${sessionId}, ${Date.now()}, ${agent}, ${title ?? ''})
         on conflict (session_id) do nothing
       `
+    },
+
+    renameSession: async (sessionId, title) => {
+      await sql`update datum_sessions set title = ${title} where session_id = ${sessionId}`
     },
 
     async deleteSession(sessionId: SessionId): Promise<void> {

@@ -235,3 +235,18 @@ test('crash repair: a dangling turn/start is closed as aborted at restore', asyn
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('sessions carry titles: register, rename, list', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'datum-title-'))
+  try {
+    const storage = createSqliteStorage({ path: join(dir, 'datum.db') })
+    await storage.registerSession(SESSION, 'agent', '新会话')
+    await storage.renameSession(SESSION, '帮我美化页面')
+    const sessions = await storage.listSessions()
+    assert.equal(sessions.length, 1)
+    assert.equal(sessions[0]!.title, '帮我美化页面')
+    await storage.close()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

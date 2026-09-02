@@ -35,6 +35,8 @@ export interface MemoryStore {
 /** One stored session's summary, for the workbench session list. */
 export interface SessionSummary {
   readonly sessionId: SessionId
+  /** Human-facing title (derived from the first user message); may be empty. */
+  readonly title: string
   /** Epoch ms of the first entry. */
   readonly firstTime: number
   /** Epoch ms of the last entry. */
@@ -79,8 +81,16 @@ export interface StorageAdapter {
    *
    * @param sessionId — the new session's identity.
    * @param agent — the agent name it runs.
+   * @param title — optional human-facing title; updateable via renameSession.
    */
-  registerSession(sessionId: SessionId, agent: string): Promise<void>
+  registerSession(sessionId: SessionId, agent: string, title?: string | undefined): Promise<void>
+  /**
+   * Set a session's human-facing title.
+   *
+   * @param sessionId — the session to rename.
+   * @param title — the new title.
+   */
+  renameSession(sessionId: SessionId, title: string): Promise<void>
   /**
    * Delete one session and all its entries.
    *

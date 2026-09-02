@@ -140,6 +140,23 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     }),
   )
 
+  // Auto-title: the first human message of a session becomes its stored
+  // title (via renameSession — a fact in the sessions registry, surviving
+  // restarts and rendering in the session list).
+  const titled = new Set<SessionId>()
+  disposers.push(
+    ctx.on('session/event', (event: SessionEvent) => {
+      if (event.type !== 'user/message' || !storage) return
+      const { sessionId, source, content } = event.payload
+      if (source.kind !== 'human' || titled.has(sessionId)) return
+      titled.add(sessionId)
+      const text = content.map(word => (word.kind === 'text' ? word.text : '')).join('').trim()
+      if (text.length === 0) return
+      const title = text.length > 40 ? `${text.slice(0, 40)}…` : text
+      void storage.renameSession(sessionId, title).catch(() => undefined)
+    }),
+  )
+
   // --- interactive asking: the agent pauses for a user answer ---------------
   const pendingAsks = new Map<string, { id: string; question: string; choices: readonly string[]; resolve: (answer: string) => void; reject: (error: Error) => void }>()
   let askCounter = 0
@@ -443,7 +460,7 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
     persistenceDisposer = undefined
     const session = new SessionLog({ context: ctx })
     if (storage) {
-      await storage.registerSession(session.sessionId, config.agent.name)
+      await storage.registerSession(session.sessionId, config.agent.name, '新会话')
       persistenceDisposer = mountSessionPersistence({ context: ctx, session, storage })
     }
     return bindSession(session)
@@ -544,6 +561,25 @@ export async function startWorkbench(config: WorkbenchConfig): Promise<Workbench
       }
       await storage.deleteSession(sessionId)
       if (sessionId === active!.session.sessionId) await activate(undefined)
+      response.writeHead(204)
+      response.end()
+      return
+    }
+    const renameMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/rename$/)
+    if (request.method === 'POST' && renameMatch) {
+      const sessionId = decodeURIComponent(renameMatch[1]!) as SessionId
+      if (!storage) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'memory-mode sessions cannot be renamed' }))
+        return
+      }
+      const body = (await readBody(request)) as { title?: unknown }
+      if (typeof body.title !== 'string' || body.title.trim().length === 0) {
+        response.writeHead(400, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'title is required' }))
+        return
+      }
+      await storage.renameSession(sessionId, body.title.trim().slice(0, 80))
       response.writeHead(204)
       response.end()
       return
