@@ -393,7 +393,14 @@ export class AgentLoop {
    */
   private async _endTurn(turnId: TurnId, reason: TurnEndReason): Promise<void> {
     this._status('stopping', `turn ${turnId} ${reason.kind}`)
-    await this._context.serial('agent/turn-stopping', this.session.sessionId, turnId)
+    try {
+      await this._context.serial('agent/turn-stopping', this.session.sessionId, turnId)
+    } catch (error) {
+      // A stopping listener failure is named but cannot eat the terminal
+      // fact — turn/end is the loop's exclusive duty and must land whatever
+      // the listeners did.
+      this._context.logger.error(`agent/turn-stopping listener failed (turn continues to ${reason.kind}): ${String(error)}`)
+    }
     this.session.append('turn/end', { sessionId: this.session.sessionId, turnId, reason })
   }
 
